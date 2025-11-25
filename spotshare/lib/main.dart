@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:spotshare/services/storage_service.dart';
 import 'package:spotshare/utils/constants.dart';
 import 'widgets/bottom_navigation.dart';
+import 'pages/Account/login_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -14,41 +16,60 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  bool isDarkMode = true; // thème sombre par défaut
+  // État de connexion : null = chargement, false = pas connecté, true = connecté
+  bool? _isLoggedIn;
 
-  void toggleTheme() {
-    setState(() {
-      isDarkMode = !isDarkMode;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    bool loggedIn = await StorageService.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = loggedIn;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Pendant le chargement du token, on affiche un écran de chargement
+    if (_isLoggedIn == null) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: CircularProgressIndicator(color: dGreen)),
+        ),
+      );
+    }
+
     return MaterialApp(
       title: 'SpotShare',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.light,
         primaryColor: Colors.green[700],
-        scaffoldBackgroundColor: Colors.grey[200],
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: Colors.white,
-          selectedItemColor: Colors.green,
-          unselectedItemColor: Colors.grey,
-        ),
+        scaffoldBackgroundColor: Colors.white,
       ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: dGreen,
         scaffoldBackgroundColor: dBlack,
-        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
           backgroundColor: dBlack,
           selectedItemColor: dWhite,
-          unselectedItemColor: dGreen,
+          unselectedItemColor: Colors.grey,
         ),
       ),
-      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: BottomNavigationBarExample(toggleTheme: toggleTheme),
+      themeMode: ThemeMode.dark, // Force le dark mode pour le style Instagram
+      // Si connecté -> BottomNav (Appli), Sinon -> Login
+      home: _isLoggedIn!
+          ? const BottomNavigationBarExample()
+          : const LoginPage(),
     );
   }
 }

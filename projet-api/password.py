@@ -3,6 +3,8 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Depends
 from sqlalchemy.orm import Session
+from typing import Optional
+from datetime import timedelta
 import os
 import database, models
 
@@ -23,7 +25,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 # ---- JWT creation ----
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})

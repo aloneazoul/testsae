@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/pages/Chat/conversations_page.dart';
 import 'package:spotshare/pages/Feed/home_page.dart';
-import 'package:spotshare/pages/Publication/ThemePage.dart';
+import 'package:spotshare/pages/Publication/list_trips_page.dart';
 import '../pages/Map/map_page.dart';
 import 'package:spotshare/pages/Chat/data/sample_data.dart';
-import '../pages/Account/login_page.dart';
 import '../pages/Account/profile_page.dart';
-import '../services/api_service.dart';
 
 class BottomNavigationBarExample extends StatefulWidget {
   final VoidCallback? toggleTheme;
@@ -28,9 +26,9 @@ class _BottomNavigationBarExampleState
     _widgetOptions = [
       const MapPage(),
       HomePage(),
-      ThemePage(toggleTheme: widget.toggleTheme),
+      MesVoyagesPage(),
       ConversationsPage(conversations: sampleConversations()),
-      const LoginPage(onLogin: loginToServer),
+      const ProfilePage(),
     ];
   }
 

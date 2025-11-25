@@ -1,135 +1,86 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
-from jose import JWTError, jwt
+from fastapi import FastAPI
+from sqlalchemy import text
+from pathlib import Path
+
 import models
 import database
-import auth
-import cloudinary
-import cloudinary.uploader
-import os
+from routers import auth, users, posts, friends, followers, trips, comments, stories, messages, interactions, notifications, map as map_router
 
 
-
-models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
 
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-)
+# Création des tables
+models.Base.metadata.create_all(bind=database.engine)
 
 
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    pseudo: str
-    password: str
+def run_sql_file(path: Path):
+    """
+    Exécute un fichier SQL instruction par instruction (séparées par des ';'),
+    compatible avec MySQL (qui n'aime pas les multi-statements en un seul execute()).
+    """
+    if not path.exists():
+        print(f"⚠️ Fichier SQL introuvable : {path}")
+        return
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    sql_content = path.read_text(encoding="utf-8")
 
-@app.post("/register")
-def register(req: RegisterRequest, db: Session = Depends(database.get_db)):
-    if db.query(models.User).filter(models.User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email déjà utilisé")
+    # On coupe sur les ';' et on exécute chaque statement séparément
+    statements = [s.strip() for s in sql_content.split(";") if s.strip()]
 
-    user = models.User(
-        email=req.email,
-        pseudo=req.pseudo,
-        password_hash=auth.hash_password(req.password)
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {"message": "Utilisateur créé avec succès", "id": user.id}
-
-@app.post("/login")
-def login(req: LoginRequest, db: Session = Depends(database.get_db)):
-    print("🔹 /login called")
-    print("   req.email   =", repr(req.email))
-    print("   req.password=", repr(req.password))
-
-    user = db.query(models.User).filter(models.User.email == req.email).first()
-    print("🔹 user from DB =", user)
-
-    if not user:
-        print("❌ Aucun user trouvé pour cet email")
-        raise HTTPException(status_code=401, detail="Email inconnu")
-
-    print("   -> user.id     =", user.id)
-    print("   -> user.email  =", repr(user.email))
-    print("   -> user.hash   =", repr(user.password_hash))
-
-    ok = auth.verify_password(req.password, user.password_hash)
-    print("🔹 verify_password =", ok)
-
-    if not ok:
-        print("❌ Mot de passe incorrect")
-        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
-
-    token = auth.create_access_token({"sub": str(user.id)})
-    print("✅ Login OK, token généré")
-
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {"id": user.id, "pseudo": user.pseudo},
-    }
+    with database.engine.begin() as conn:  # begin() = ouvre une transaction et commit automatique à la fin
+        for stmt in statements:
+            try:
+                print(f"▶️ Exécution SQL : {stmt[:80]}{'...' if len(stmt) > 80 else ''}")
+                conn.execute(text(stmt))
+            except Exception as e:
+                # On log l'erreur mais on ne casse pas tout si un index existe déjà, etc.
+                print("⚠️ Erreur lors de l'exécution de :")
+                print(stmt)
+                print("Erreur :", e)
 
 
-@app.get("/me")
-def me(token: str, db: Session = Depends(database.get_db)):
-    try:
-        payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
-        user_id = int(payload.get("sub"))
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token invalide")
+# 1) Indexes
+INIT_INDEXES_PATH = Path(__file__).parent / "init_indexes.sql"
+run_sql_file(INIT_INDEXES_PATH)
 
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    return {"id": user.id, "email": user.email, "pseudo": user.pseudo}
+# 2) Données de base (pays, etc.) → seulement si pas encore remplies
+INIT_DATA_PATH = Path(__file__).parent / "init_data.sql"
 
-@app.get("/init-db")
-def init_db():
-    models.Base.metadata.create_all(bind=database.engine)
-    return {"message": "Tables créées ✅"}
+with database.engine.connect() as conn:
+    result = conn.execute(text("SELECT COUNT(*) FROM countries"))
+    count = result.scalar()
 
-@app.post("/upload")
-def upload_image(
-    file: UploadFile = File(...),
-    token: str = None,
-    db: Session = Depends(database.get_db)
-):
-    # Vérifie le token de l'utilisateur
-    user_data = auth.verify_token(token, db)
-    user_id = user_data["user_id"]
+if count == 0:
+    print("➡️ Aucune donnée pays trouvée, exécution de init_data.sql")
+    run_sql_file(INIT_DATA_PATH)
+else:
+    print(f"✔️ {count} pays déjà présents, on ne relance pas init_data.sql")
 
-    # Envoie l’image vers Cloudinary
-    try:
-        upload_result = cloudinary.uploader.upload(
-            file.file,
-            folder=f"user_{user_id}/",
-            unique_filename=True,
-            overwrite=False
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur upload Cloudinary : {e}")
+# 3) Triggers
+INIT_TRIGGERS_PATH = Path(__file__).parent / "init_triggers.sql"
+run_sql_file(INIT_TRIGGERS_PATH)
 
-    # Sauvegarde dans la base
-    new_image = models.Photo(
-        user_id=user_id,
-        url=upload_result["secure_url"],
-        public_id=upload_result["public_id"]
-    )
-    db.add(new_image)
-    db.commit()
 
-    return {"message": "Image uploadée ✅", "url": upload_result["secure_url"]}
+# 4) Events
+INIT_EVENTS_PATH = Path(__file__).parent / "init_events.sql"
+run_sql_file(INIT_EVENTS_PATH)
 
+
+
+
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(posts.router)
+app.include_router(friends.router)
+app.include_router(followers.router)
+app.include_router(trips.router)
+app.include_router(comments.router)
+app.include_router(stories.router)
+app.include_router(messages.router)
+app.include_router(interactions.router)
+app.include_router(notifications.router)
+app.include_router(map_router.router)
 
 
 @app.get("/")
@@ -138,6 +89,5 @@ def root():
 
 
 if __name__ == "__main__":
-    
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8001)

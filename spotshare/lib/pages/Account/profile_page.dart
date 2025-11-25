@@ -1,155 +1,142 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:spotshare/services/user_service.dart';
+import 'package:spotshare/services/storage_service.dart';
+import 'login_page.dart';
 
 class ProfilePage extends StatefulWidget {
-  final String email;
-  final String pseudo;
-  final String? profilePictureUrl;
-
-  const ProfilePage({
-    super.key,
-    required this.email,
-    required this.pseudo,
-    this.profilePictureUrl,
-  });
+  const ProfilePage({super.key});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final _pseudoCtrl = TextEditingController();
-  File? _selectedImage;
-  bool _saving = false;
+  Map<String, dynamic>? _userData;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _pseudoCtrl.text = widget.pseudo;
+    _loadProfile();
   }
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final result = await picker.pickImage(source: ImageSource.gallery);
-
-    if (result != null) {
+  Future<void> _loadProfile() async {
+    final data = await getMyProfile();
+    if (mounted) {
       setState(() {
-        _selectedImage = File(result.path);
+        _userData = data;
+        _loading = false;
       });
     }
   }
 
-  Future<void> _saveChanges() async {
-    setState(() => _saving = true);
-
-    // 👉 Ici tu appelles l’API : UpdatePseudo, UpdateProfilePicture, etc.
-    // Exemple :
-    // await UpdateUserProfile(_pseudoCtrl.text, _selectedImage);
-
-    await Future.delayed(const Duration(milliseconds: 800)); // Pour simuler
-
-    setState(() => _saving = false);
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Profil mis à jour !")));
+  Future<void> _logout() async {
+    await StorageService.clearToken();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+      (route) => false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[900],
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: const Text("Mon Profil"),
-      ),
-      body: Center(
-        child: Card(
-          color: Colors.grey[850],
-          elevation: 8,
-          margin: const EdgeInsets.all(24),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-                    onTap: _pickImage,
-                    child: Stack(
-                      alignment: Alignment.bottomRight,
-                      children: [
-                        CircleAvatar(
-                          radius: 60,
-                          backgroundColor: Colors.grey[700],
-                          backgroundImage: _selectedImage != null
-                              ? FileImage(_selectedImage!)
-                              : (widget.profilePictureUrl != null
-                                        ? NetworkImage(
-                                            widget.profilePictureUrl!,
-                                          )
-                                        : null)
-                                    as ImageProvider?,
-                          child:
-                              (widget.profilePictureUrl == null &&
-                                  _selectedImage == null)
-                              ? const Icon(
-                                  Icons.person,
-                                  size: 60,
-                                  color: Colors.white,
-                                )
-                              : null,
-                        ),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          padding: const EdgeInsets.all(6),
-                          child: const Icon(Icons.edit, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-                  const SizedBox(height: 20),
-
-                  Text(
-                    widget.email,
-                    style: const TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  TextField(
-                    controller: _pseudoCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: "Pseudo",
-                      labelStyle: TextStyle(color: Colors.white70),
-                      prefixIcon: Icon(Icons.person, color: Colors.white70),
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  ElevatedButton(
-                    onPressed: _saving ? null : _saveChanges,
-                    child: _saving
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Enregistrer les modifications"),
-                  ),
-                ],
+    if (_userData == null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text("Erreur de chargement du profil"),
+              ElevatedButton(
+                onPressed: _logout,
+                child: const Text("Se déconnecter"),
               ),
-            ),
+            ],
           ),
         ),
+      );
+    }
+
+    String? imgUrl = _userData!['img'] as String?;
+
+    String pseudo = _userData!['pseudo'] ?? 'Utilisateur';
+    String email = _userData!['email'] ?? '';
+    String phone = _userData!['phone'] ?? '';
+    String birthDate = _userData!['birth_date'] ?? '';
+    String gender = _userData!['gender'] ?? 'Homme';
+    String bio = _userData!['bio'] ?? '';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(pseudo),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.exit_to_app, color: Colors.red),
+            onPressed: _logout,
+          ),
+        ],
       ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 50,
+              backgroundImage: (imgUrl != null && imgUrl.isNotEmpty)
+                  ? NetworkImage(imgUrl)
+                  : null,
+              child: (imgUrl == null || imgUrl.isEmpty)
+                  ? const Icon(Icons.person, size: 50, color: Colors.white54)
+                  : null,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              pseudo,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            Text("$email, $phone", style: TextStyle(color: Colors.grey[600])),
+            Text(
+              (gender == 'Femme' ? "Née le : " : "Né le : ") + birthDate,
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            Text(
+              "Biographie\n$bio",
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18),
+            ),
+            const SizedBox(height: 32),
+
+            // Statistiques factices pour l'instant
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildStat("Posts", "0"),
+                _buildStat("Abonnés", "120"),
+                _buildStat("Suivi", "45"),
+              ],
+            ),
+            const Divider(height: 40),
+            const Center(child: Text("Mes publications s'afficheront ici.")),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        Text(label, style: const TextStyle(color: Colors.grey)),
+      ],
     );
   }
 }

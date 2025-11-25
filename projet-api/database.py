@@ -13,11 +13,14 @@ if os.path.exists(SECRET_PATH):
     print("🔐 Mot de passe DB chargé depuis le secret Docker.", flush=True)
 else:
     print("⚠️ Secret Docker non trouvé, fallback (DEV MODE)", flush=True)
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "root")
+    #DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    
 
 # ---- 2️⃣ Construire la vraie DATABASE_URL utilisée dans Swarm ----
 DATABASE_URL = (
-    f"mysql+pymysql://root:{DB_PASSWORD}@localhost:3306/spotshare"
+    f"mysql+pymysql://root:{DB_PASSWORD}@localhost:8889/spotshare"
+    #f"mysql+pymysql://root:{DB_PASSWORD}@localhost:3306/spotshare"
 )
 
 print(f"📦 DATABASE_URL = {DATABASE_URL}", flush=True)

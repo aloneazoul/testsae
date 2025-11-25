@@ -30,9 +30,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  shared_preferences: ^2.2.2
 
 
   image_picker: ^1.0.7
+  
+  camera: ^0.10.5+2
 
 
   flutter_map: ^7.0.2
