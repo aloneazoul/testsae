@@ -280,3 +280,25 @@ def list_trip_places(
     res = db.query(models.TripPlace).filter_by(trip_id=trip_id).order_by(models.TripPlace.ordinal).all()
 
     return res
+
+
+# ============================================================
+# 11. LISTER LES POSTS (SOUVENIRS) D'UN VOYAGE
+# ============================================================
+@router.get("/trips/{trip_id}/posts")
+def get_trip_posts(
+    trip_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    trip = db.query(models.Trip).filter_by(trip_id=trip_id).first()
+
+    if not trip:
+        raise HTTPException(404, "Voyage introuvable")
+
+    if trip.is_public_flag == "N" and trip.user_id != current_user.user_id:
+        raise HTTPException(403, "Voyage privé")
+
+    res = db.query(models.Post).filter_by(trip_id=trip_id).order_by(models.Post.creation_date).all()
+
+    return res

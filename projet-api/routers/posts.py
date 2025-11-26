@@ -385,3 +385,64 @@ def share_post(
             creator_id=current_user.user_id,
         )
     return {"message": "Post partagé"}
+
+
+# ============================================================
+# 7. RÉCUPÉRER LES MÉDIAS D'UN POST
+# ============================================================
+@router.get("/posts/{post_id}/media")
+def get_post_media(
+    post_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    post = db.query(models.Post).filter_by(post_id=post_id).first()
+
+    if not post:
+        raise HTTPException(404, 'Post introuvable')
+    
+    # Correction de 'user_ud' -> 'user_id'
+    if post.privacy == 'PRIVATE' and post.user_id != current_user.user_id:
+        raise HTTPException(403, "Post privé")
+    
+    # On trie par rang dans le carrousel
+    res = db.query(models.Media)\
+            .filter_by(post_id=post_id)\
+            .order_by(models.Media.carrousel_rank)\
+            .all()
+            
+    return list(res)
+
+
+# ============================================================
+# 8. RÉCUPÉRER LE PREMIER MÉDIAS D'UN POST
+# ============================================================
+@router.get("/posts/{post_id}/media/first")
+def get_post_first_media(
+    post_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    post = db.query(models.Post).filter_by(post_id=post_id).first()
+
+    if not post:
+        raise HTTPException(404, 'Post introuvable')
+    
+    # Correction de 'user_ud' -> 'user_id'
+    if post.privacy == 'PRIVATE' and post.user_id != current_user.user_id:
+        raise HTTPException(403, "Post privé")
+    
+    # On trie par rang dans le carrousel
+    res = db.query(models.Media)\
+            .filter_by(post_id=post_id)\
+            .order_by(models.Media.carrousel_rank)\
+            .first()
+            
+    if not res:
+        return None
+    else:
+        return {
+            "media_id": res.media_id,
+            "media_url": res.media_url,
+            "post_id": res.post_id
+        }

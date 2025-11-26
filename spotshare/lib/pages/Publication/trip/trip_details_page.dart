@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/utils/constants.dart';
+import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/trip_service.dart';
+import 'package:spotshare/services/api_client.dart'; // Nécessaire pour l'URL de base des images
+import 'package:spotshare/pages/Publication/post/Publication_page.dart'; // Nécessaire pour la navigation
 
 class TripDetailsPage extends StatefulWidget {
   final Map<String, dynamic> trip;
@@ -12,8 +15,40 @@ class TripDetailsPage extends StatefulWidget {
 }
 
 class _TripDetailsPageState extends State<TripDetailsPage> {
+  final PostService _postService = PostService();
   final TripService _tripService = TripService();
+  final ApiClient _apiClient =
+      ApiClient(); // Pour construire les URLs des images de posts
+
   bool _isDeleting = false;
+
+  // --- NOUVEAU : Variables pour les souvenirs ---
+  List<dynamic> _tripPosts = [];
+  bool _isLoadingPosts = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // On charge les souvenirs au démarrage
+    _fetchPosts();
+  }
+
+  // --- NOUVEAU : Charger les posts ---
+  Future<void> _fetchPosts() async {
+    final posts = await _tripService.getTripPosts(widget.trip['trip_id']);
+
+    for (var post in posts) {
+      final img = await _postService.getFirstMediaTripPosts(post["post_id"]);
+      post["preview_image"] = img?["media_url"];
+    }
+
+    if (mounted) {
+      setState(() {
+        _tripPosts = posts;
+        _isLoadingPosts = false;
+      });
+    }
+  }
 
   // ---------------------------------------------------
   // FALLBACK IMAGE (identique à la liste)
@@ -86,7 +121,7 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     final startDate = widget.trip["start_date"];
     final endDate = widget.trip["end_date"];
 
-    // Image potentielle
+    // Image potentielle (Logique conservée)
     final String? banner = widget.trip["banner"];
     String? imageUrl;
 
@@ -244,24 +279,161 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                 ],
               ),
             ),
+
+            // ---------------------------------------------------
+            // NOUVEAU : SECTION SOUVENIRS
+            // ---------------------------------------------------
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: const Text(
+                "Souvenirs",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            if (_isLoadingPosts)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(color: dGreen),
+                ),
+              )
+            else if (_tripPosts.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(40),
+                  child: Text(
+                    "Aucun souvenir pour le moment.\nCliquez sur + pour en ajouter !",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white38),
+                  ),
+                ),
+              )
+            else
+              GridView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shrinkWrap:
+                    true, // Important car on est dans un SingleChildScrollView
+                physics:
+                    const NeverScrollableScrollPhysics(), // Le scroll est géré par la page entière
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, // 2 images par ligne
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 0.8,
+                ),
+                itemCount: _tripPosts.length,
+                itemBuilder: (context, index) {
+                  return _buildPostCard(_tripPosts[index]);
+                },
+              ),
+
+            const SizedBox(height: 80), // Espace pour le FAB
           ],
         ),
       ),
 
+      // ---------------------------------------------------
+      // BOUTON FLOTTANT MIS À JOUR
+      // ---------------------------------------------------
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: dGreen,
         onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Ajouter un souvenir/post (À implémenter)"),
+          // Navigation vers la page de création de post
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PublishPage(tripId: widget.trip['trip_id']),
             ),
-          );
+          ).then((result) {
+            // Si on revient après avoir publié, on rafraîchit la liste
+            if (result == true) {
+              _fetchPosts();
+            }
+          });
         },
         icon: const Icon(Icons.add_a_photo, color: Colors.black),
         label: const Text(
           "Ajouter un souvenir",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------
+  // NOUVEAU : WIDGET CARTE SOUVENIR
+  // ---------------------------------------------------
+  Widget _buildPostCard(dynamic post) {
+    String? imageUrl = post["preview_image"];
+    String username = post["username"] ?? "Moi";
+
+    // Si l'URL est relative, on ajoute la baseUrl
+    if (imageUrl != null && !imageUrl.startsWith("http")) {
+      imageUrl = "${_apiClient.baseUrl}/$imageUrl";
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(12),
+        image: imageUrl != null
+            ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+            : null,
+      ),
+      child: Stack(
+        children: [
+          // Si pas d'image, icône par défaut
+          if (imageUrl == null)
+            const Center(
+              child: Icon(Icons.image, color: Colors.white24, size: 40),
+            ),
+
+          // Dégradé noir en bas pour lire le texte
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+
+          // Texte description et auteur
+          Positioned(
+            bottom: 8,
+            left: 8,
+            right: 8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (post["post_description"] != null)
+                  Text(
+                    post["post_description"],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                Text(
+                  username,
+                  style: const TextStyle(
+                    color: dGreen,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

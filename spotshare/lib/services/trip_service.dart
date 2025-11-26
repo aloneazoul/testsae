@@ -97,4 +97,18 @@ class TripService {
       return false;
     }
   }
+
+  // Récupérer les posts d'un voyage spécifique
+  Future<List<dynamic>> getTripPosts(int tripId) async {
+    try {
+      final response = await _client.get("/trips/$tripId/posts");
+      if (response != null && response is List) {
+        return response;
+      }
+      return [];
+    } catch (e) {
+      print("❌ Erreur getTripPosts: $e");
+      return [];
+    }
+  }
 }

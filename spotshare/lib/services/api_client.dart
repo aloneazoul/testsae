@@ -99,4 +99,38 @@ class ApiClient {
 
     return _processResponse(response);
   }
+
+  // Méthode pour envoyer des fichiers (Multipart Request)
+  Future<dynamic> postMultipart(String endpoint, File file) async {
+    final url = Uri.parse("$baseUrl$endpoint");
+    final token = await StorageService.getToken();
+
+    var request = http.MultipartRequest("POST", url);
+
+    // Ajout du header Authorization
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    // Préparation du fichier
+    // Note: Le champ 'file' correspond au nom du paramètre dans votre API FastAPI : file: UploadFile = File(...)
+    var multipartFile = await http.MultipartFile.fromPath(
+      'file', 
+      file.path,
+    );
+
+    request.files.add(multipartFile);
+
+    print("🛫 UPLOAD: $url \n📁 File: ${file.path}");
+
+    try {
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      return _processResponse(response);
+    } catch (e) {
+      print("❌ Erreur Upload: $e");
+      throw Exception("Erreur lors de l'envoi du fichier");
+    }
+  }
 }

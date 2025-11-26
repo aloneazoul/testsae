@@ -314,6 +314,8 @@ class Media(Base):
     original_filename = Column(String(255))
     exif_data = Column(JSON)
 
+    carrousel_rank = Column(Integer, default=1)
+
     upload_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     creation_date = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_by = Column(Integer, ForeignKey("users.user_id"))

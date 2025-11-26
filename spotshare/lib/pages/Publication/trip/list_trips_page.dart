@@ -4,8 +4,8 @@ import 'package:spotshare/services/trip_service.dart';
 import 'package:spotshare/services/api_client.dart';
 
 // Import des pages
-import 'package:spotshare/pages/Publication/create_trip_page.dart';
-import 'package:spotshare/pages/Publication/trip_details_page.dart';
+import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
+import 'package:spotshare/pages/Publication/trip/trip_details_page.dart';
 
 class MesVoyagesPage extends StatefulWidget {
   const MesVoyagesPage({super.key});

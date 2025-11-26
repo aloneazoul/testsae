@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/pages/Chat/conversations_page.dart';
 import 'package:spotshare/pages/Feed/home_page.dart';
-import 'package:spotshare/pages/Publication/list_trips_page.dart';
+import 'package:spotshare/pages/Publication/trip/list_trips_page.dart';
 import '../pages/Map/map_page.dart';
 import 'package:spotshare/pages/Chat/data/sample_data.dart';
 import '../pages/Account/profile_page.dart';
