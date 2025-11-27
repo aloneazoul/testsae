@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, desc
 from datetime import datetime, timezone
 import cloudinary
 import cloudinary.uploader
@@ -446,3 +446,19 @@ def get_post_first_media(
             "media_url": res.media_url,
             "post_id": res.post_id
         }
+
+
+# ============================================================
+# 9. RÉCUPÉRER TOUS LES POSTS
+# ============================================================
+@router.get("/posts")
+def get_post(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    res = db.query(models.Post).filter_by(user_id=current_user.user_id).order_by(desc(models.Post.creation_date)).all()
+            
+    if not res:
+        return None
+    else:
+        return list(res)

@@ -1,29 +1,31 @@
+// publish_page.dart
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:spotshare/services/post_service.dart'; // Assurez-vous d'avoir créé ce fichier comme vu précédemment
-import 'package:spotshare/utils/constants.dart'; // Pour les couleurs (dGreen)
+import 'package:spotshare/services/trip_service.dart';
+import 'package:spotshare/services/post_service.dart';
+import 'package:spotshare/utils/constants.dart';
+import 'package:spotshare/pages/Publication/post/gallery_picker_page.dart';
+import 'package:spotshare/widgets/bottom_navigation.dart';
 
 class PublishPage extends StatefulWidget {
-  final int? tripId; // On accepte un ID de voyage optionnel
-
-  const PublishPage({super.key, this.tripId});
+  const PublishPage({super.key});
 
   @override
   State<PublishPage> createState() => _PublishPageState();
 }
 
 class _PublishPageState extends State<PublishPage> {
+  final TripService _tripService = TripService();
+  final PostService _postService = PostService();
+
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
+  final List<XFile> _selectedImages = [];
   bool _loading = true;
-  bool _isPublishing = false;
-  
-  XFile? _capturedImage;
-  final TextEditingController _descriptionController = TextEditingController();
-  final PostService _postService = PostService();
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _captionController = TextEditingController();
 
   @override
   void initState() {
@@ -32,6 +34,7 @@ class _PublishPageState extends State<PublishPage> {
   }
 
   Future<void> _initCamera() async {
+    setState(() => _loading = true);
     try {
       _cameras = await availableCameras();
       if (_cameras != null && _cameras!.isNotEmpty) {
@@ -43,62 +46,196 @@ class _PublishPageState extends State<PublishPage> {
         await _cameraController!.initialize();
       }
     } catch (e) {
-      print("Erreur caméra: $e");
-    }
-
-    if (mounted) {
-      setState(() => _loading = false);
+      debugPrint("Erreur caméra (init): $e");
+      _cameraController = null;
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _takePicture() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized)
+      return;
     try {
       final image = await _cameraController!.takePicture();
       setState(() {
-        _capturedImage = image;
+        _selectedImages.clear();
+        _selectedImages.add(image);
       });
     } catch (e) {
-      print("Erreur photo: $e");
+      debugPrint("Erreur prise de photo: $e");
     }
   }
 
   Future<void> _pickFromGallery() async {
     try {
-      final image = await _picker.pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        setState(() {
-          _capturedImage = image;
-        });
+      if (_cameraController != null) {
+        await _cameraController!.dispose();
+        _cameraController = null;
       }
     } catch (e) {
-      print("Erreur galerie: $e");
+      debugPrint("Erreur lors du dispose de la caméra: $e");
+    }
+
+    final result = await Navigator.push<List<File>?>(
+      context,
+      MaterialPageRoute(builder: (context) => const GalleryPickerPage()),
+    );
+
+    if (!mounted) return;
+
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _selectedImages.clear();
+        _selectedImages.addAll(result.map((f) => XFile(f.path)));
+      });
+    } else {
+      await _initCamera();
     }
   }
 
-  Future<void> _publish() async {
-    if (_capturedImage == null) return;
+  void _retake() {
+    setState(() {
+      _selectedImages.clear();
+      _captionController.clear();
+    });
+    _initCamera();
+  }
 
-    setState(() => _isPublishing = true);
+  void _showTripSelectionModal() {
+    if (_selectedImages.isEmpty) return;
 
-    // Appel au service avec l'ID du voyage (si présent)
-    final success = await _postService.createPost(
-      description: _descriptionController.text,
-      imageFile: File(_capturedImage!.path),
-      tripId: widget.tripId, // IMPORTANT : On lie le post au voyage
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (_, scrollController) {
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4, color: Colors.grey[600]),
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text(
+                    "Dans quel voyage ajouter ce post ?",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: FutureBuilder<List<dynamic>>(
+                    future: _tripService.getMyTrips(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData)
+                        return const Center(
+                          child: CircularProgressIndicator(color: dGreen),
+                        );
+                      final trips = snapshot.data ?? [];
+                      if (trips.isEmpty)
+                        return const Center(
+                          child: Text(
+                            "Aucun voyage.",
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        );
+
+                      return ListView.builder(
+                        controller: scrollController,
+                        itemCount: trips.length,
+                        itemBuilder: (context, index) {
+                          final trip = trips[index];
+                          ImageProvider? bannerImage;
+                          if (trip['banner'] != null) {
+                            final url =
+                                trip['banner'].toString().startsWith('http')
+                                ? trip['banner']
+                                : "http://10.0.2.2:8000/${trip['banner']}";
+                            bannerImage = NetworkImage(url);
+                          }
+
+                          return ListTile(
+                            leading: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800],
+                                borderRadius: BorderRadius.circular(8),
+                                image: bannerImage != null
+                                    ? DecorationImage(
+                                        image: bannerImage,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: bannerImage == null
+                                  ? const Icon(Icons.map, color: Colors.white54)
+                                  : null,
+                            ),
+                            title: Text(
+                              trip['trip_title'] ?? "Voyage",
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            onTap: () => _publishToTrip(trip['trip_id']),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _publishToTrip(int tripId) async {
+    Navigator.pop(context); // Ferme le modal
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Envoi en cours...")));
+
+    final files = _selectedImages.map((xfile) => File(xfile.path)).toList();
+
+    final success = await _postService.createCarouselPost(
+      tripId: tripId,
+      imageFiles: files,
+      caption: _captionController.text,
     );
 
     if (mounted) {
-      setState(() => _isPublishing = false);
-
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Souvenir publié ! 🚀"), backgroundColor: Colors.green),
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) =>
+                const BottomNavigationBarExample(initialIndex: 4),
+          ),
+          (route) => false,
         );
-        Navigator.pop(context, true); // On renvoie 'true' pour dire que ça a marché
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Post publié !"),
+            backgroundColor: dGreen,
+          ),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Erreur lors de l'envoi."), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text("Erreur publication."),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -106,97 +243,154 @@ class _PublishPageState extends State<PublishPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    // --- MODE 1 : CAMERA (Si pas d'image capturée) ---
-    if (_capturedImage == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text("Prendre une photo")),
-        body: _cameraController != null && _cameraController!.value.isInitialized
-            ? CameraPreview(_cameraController!)
-            : const Center(child: Text("Caméra indisponible")),
-        floatingActionButton: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            FloatingActionButton(
-              heroTag: "galleryBtn",
-              onPressed: _pickFromGallery,
-              child: const Icon(Icons.photo_library),
-            ),
-            FloatingActionButton(
-              heroTag: "cameraBtn",
-              backgroundColor: dGreen,
-              onPressed: _takePicture,
-              child: const Icon(Icons.camera_alt, color: Colors.white),
-            ),
-          ],
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    if (_loading)
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
       );
-    }
 
-    // --- MODE 2 : ÉDITION (Si image capturée) ---
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("Nouveau Souvenir"),
+        backgroundColor: Colors.black,
         leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => setState(() => _capturedImage = null), // Annuler la photo
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            SizedBox(
-              height: 300,
-              width: double.infinity,
-              child: Image.file(File(_capturedImage!.path), fit: BoxFit.cover),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: _descriptionController,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: "Racontez ce souvenir...",
-                  border: OutlineInputBorder(),
-                  hintText: "Ex: Une vue magnifique sur les montagnes...",
-                ),
+      body: _selectedImages.isEmpty ? _buildCameraView() : _buildPreviewView(),
+    );
+  }
+
+  Widget _buildCameraView() {
+    return Stack(
+      children: [
+        if (_cameraController != null && _cameraController!.value.isInitialized)
+          SizedBox.expand(child: CameraPreview(_cameraController!))
+        else
+          Container(color: Colors.black),
+        Positioned(
+          bottom: 40,
+          left: 0,
+          right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              FloatingActionButton(
+                heroTag: "gallery",
+                backgroundColor: Colors.grey[800],
+                onPressed: _pickFromGallery,
+                child: const Icon(Icons.photo_library, color: Colors.white),
               ),
-            ),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: dGreen,
-                    foregroundColor: Colors.black,
+              FloatingActionButton(
+                heroTag: "snap",
+                backgroundColor: Colors.white,
+                child: const Icon(Icons.circle, size: 50, color: Colors.black),
+                onPressed: _takePicture,
+              ),
+              const SizedBox(width: 56),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPreviewView() {
+    return Column(
+      children: [
+        Expanded(
+          child: PageView.builder(
+            itemCount: _selectedImages.length,
+            itemBuilder: (context, index) {
+              final file = _selectedImages[index];
+              return Stack(
+                children: [
+                  SizedBox.expand(
+                    child: Image.file(File(file.path), fit: BoxFit.cover),
                   ),
-                  onPressed: _isPublishing ? null : _publish,
-                  icon: _isPublishing 
-                      ? const SizedBox.shrink() 
-                      : const Icon(Icons.send),
-                  label: _isPublishing
-                      ? const CircularProgressIndicator(color: Colors.black)
-                      : const Text("PUBLIER LE SOUVENIR", style: TextStyle(fontWeight: FontWeight.bold)),
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _selectedImages.removeAt(index);
+                        });
+                      },
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 16,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Text(
+                        "${index + 1}/${_selectedImages.length}",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          backgroundColor: Colors.black38,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(20),
+          color: Colors.black,
+          child: Column(
+            children: [
+              TextField(
+                controller: _captionController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: "Légende...",
+                  hintStyle: TextStyle(color: Colors.grey),
+                  border: InputBorder.none,
                 ),
               ),
-            ),
-          ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: _retake,
+                    child: const Text(
+                      "Annuler",
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: dGreen,
+                      foregroundColor: Colors.black,
+                    ),
+                    onPressed: _showTripSelectionModal,
+                    child: const Text("Suivant"),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
-    _descriptionController.dispose();
+    _captionController.dispose();
     super.dispose();
   }
 }
