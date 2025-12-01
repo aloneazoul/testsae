@@ -18,10 +18,15 @@ router = APIRouter(tags=["Friends"])
 # ============================================================
 @router.get("/search/users")
 def search_users(
-    query: str,
+    query: str = "",
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    
+    sql = ""
+    params = {}
+    
+
     """
     Recherche full-text via l'index GIN (username).
     """
@@ -32,16 +37,29 @@ def search_users(
     #    WHERE to_tsvector('french', username) @@ plainto_tsquery('french', :q)
     #    LIMIT 20;
     #""")
-    sql = text("""
-        SELECT user_id, username, profile_picture
-        FROM users
-        WHERE MATCH(username) AGAINST (:q IN BOOLEAN MODE)
-        LIMIT 20;
-    """)
 
+    if query and query.strip():
+        sql = text("""
+            SELECT user_id, username, profile_picture
+            FROM users
+            WHERE username LIKE :q 
+            AND user_id != :uid
+            LIMIT 20;
+        """)
+        params = {"q": f"%{query}%", "uid": current_user.user_id}
 
+    else:
+        sql = text("""
+            SELECT user_id, username, profile_picture
+            FROM users
+            WHERE user_id != :uid
+            ORDER BY creation_date DESC
+            LIMIT 50;
+        """)
+        params = {"uid": current_user.user_id}
 
-    res = db.execute(sql, {"q": query}).mappings().all()
+    res = db.execute(sql, params).mappings().all()
+
     return list(res)
 
 

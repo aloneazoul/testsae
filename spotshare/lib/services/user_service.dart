@@ -30,5 +30,64 @@ Future<Map<String, dynamic>?> getMyProfile() async {
   } catch (e) {
     print("🔴 Erreur réseau Profil : $e");
   }
+
+  // Recherche d'utilisateurs (si query est vide "", renvoie la liste par défaut)
+Future<List<dynamic>> searchUsers(String query) async {
+  final token = await StorageService.getToken();
+  
+  // On passe le paramètre query dans l'URL
+  final url = "${apiClient.baseUrl}/search/users?query=$query"; 
+
+  try {
+    print("🔵 Search Users : $url");
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        "Content-Type": "application/json",
+        if (token != null) "Authorization": "Bearer $token",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      print("❌ Erreur API search: ${response.statusCode} ${response.body}");
+    }
+  } catch (e) {
+    print("🔴 Erreur réseau search : $e");
+  }
+  return [];
+}
   return null;
+  
+}
+
+  // Recherche d'utilisateurs (si query est vide "", renvoie la liste par défaut)
+Future<List<dynamic>> searchUsers(String query) async {
+  final token = await StorageService.getToken();
+  
+  // On passe le paramètre query dans l'URL
+  final url = "${apiClient.baseUrl}/search/users?query=$query"; 
+
+  try {
+    print("🔵 Search Users : $url");
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        "Content-Type": "application/json",
+        if (token != null) "Authorization": "Bearer $token",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      print("❌ Erreur API search: ${response.statusCode} ${response.body}");
+    }
+  } catch (e) {
+    print("🔴 Erreur réseau search : $e");
+  }
+  return [];
+
+  
 }

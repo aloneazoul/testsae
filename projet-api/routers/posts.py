@@ -482,3 +482,41 @@ def get_post(
         return None
     else:
         return list(res)
+    
+
+# ============================================================
+# 10. RÉCUPÉRER TOUS LES DERNIERS POSTS DE CHAQUE UTILISATEUR (faire un meilleure algorithme plus tard)
+# ============================================================
+@router.get("/feed/discovery")
+def get_discovery_feed(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    sql = text("""
+        SELECT 
+            p.post_id, 
+            p.post_title, 
+            p.post_description, 
+            p.publication_date, 
+            u.user_id, 
+            u.username, 
+            u.profile_picture,
+            
+            -- 👇 MODIFICATION ICI : On récupère TOUTES les URLs séparées par une virgule
+            (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
+            
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count
+        FROM posts p
+        JOIN users u ON u.user_id = p.user_id
+        INNER JOIN (
+            SELECT user_id, MAX(publication_date) as max_date
+            FROM posts
+            GROUP BY user_id
+        ) latest ON p.user_id = latest.user_id AND p.publication_date = latest.max_date
+        WHERE p.user_id != :uid
+        ORDER BY p.publication_date DESC;
+    """)
+
+    res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
+    return list(res)

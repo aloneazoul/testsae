@@ -181,3 +181,22 @@ def get_my_saved_posts(
     """)
     res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
     return list(res)
+
+
+
+@router.get("/me")
+def me(current_user: models.User = Depends(get_current_user)):
+    """
+    Retourne les infos de l'utilisateur connecté.
+    """
+    return {
+        "id": current_user.user_id,
+        "email": current_user.email,
+        "pseudo": current_user.username,
+        "gender": current_user.gender,
+        "bio": current_user.bio,
+        "phone": current_user.phone_number,
+        "birth_date": current_user.birth_date,
+        "is_private": current_user.is_private_flag == "Y",
+        "img": current_user.profile_picture,
+    }

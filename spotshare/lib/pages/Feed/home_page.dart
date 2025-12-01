@@ -1,46 +1,79 @@
 import 'package:flutter/material.dart';
-import '../../widgets/post_card.dart';
+import 'package:spotshare/models/post_model.dart'; // ✅ On utilise le modèle
+import 'package:spotshare/services/post_service.dart'; // ✅ On utilise le service
+import 'package:spotshare/widgets/post_card.dart';
 import 'package:spotshare/widgets/stories_bar.dart';
-import 'data/sample_data.dart';
 
-class HomePage extends StatelessWidget {
+// 🗑️ SUPPRIME l'import de 'sample_data.dart' s'il est encore là !
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  // On stocke une liste de VRAIS objets PostModel
+  List<PostModel> _posts = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchFeed();
+  }
+
+  Future<void> _fetchFeed() async {
+    // 1. Appel API
+    final rawData = await getDiscoveryFeed();
+    
+    if (mounted) {
+      setState(() {
+        // 2. Utilisation du traducteur (fromJson)
+        _posts = rawData.map((json) => PostModel.fromJson(json)).toList();
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Trier sampleData du plus récent au plus ancien
-    final sortedPosts = List.from(sampleData)
-      ..sort((a, b) => b.date.compareTo(a.date));
-
-    // Créer une map pour ne garder qu'un post par utilisateur
-    final latestPosts = <String, dynamic>{};
-    for (var post in sortedPosts) {
-      if (!latestPosts.containsKey(post.userName)) {
-        latestPosts[post.userName] = post;
-      }
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Feed'),
+        title: const Text('Feed', style: TextStyle(fontWeight: FontWeight.w600)),
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
-        surfaceTintColor: Colors.transparent, // supprime le filtre
-        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
       ),
-      body: ListView(
-        children: [
-          StoriesBar(
-            stories: [
-              {"name": "Alone", "image": "https://picsum.photos/seed/alone/200"},
-              {"name": "Emma", "image": "https://picsum.photos/seed/emma/200"},
-              {"name": "Lucas", "image": "https://picsum.photos/seed/lucas/200"},
-              {"name": "Zoé", "image": "https://picsum.photos/seed/zoe/200"},
-              {"name": "Léa", "image": "https://picsum.photos/seed/lea/200"},
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Afficher les posts les plus récents par utilisateur
-          ...latestPosts.values.map((p) => PostCard(post: p)),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchFeed, // Permet de recharger en tirant l'écran
+        child: ListView(
+          children: [
+            // Stories (On garde ça statique pour l'instant)
+            StoriesBar(
+              stories: const [
+                {"name": "Moi", "image": "https://picsum.photos/200"},
+              ],
+            ),
+            
+            const SizedBox(height: 10),
+
+            // Gestion des états (Chargement / Vide / Rempli)
+            if (_isLoading)
+               const Center(child: Padding(padding: EdgeInsets.all(50), child: CircularProgressIndicator()))
+            else if (_posts.isEmpty)
+               const Center(child: Padding(padding: EdgeInsets.all(50), child: Text("Aucun post pour le moment. Ajoutez des amis !")))
+            else
+               // Affichage de la liste
+               ..._posts.map((post) => PostCard(
+                 post: post, 
+                 isOwner: false, // Ce n'est pas mon post, donc pas de menu supprimer
+               )),
+               
+            const SizedBox(height: 80),
+          ],
+        ),
       ),
     );
   }

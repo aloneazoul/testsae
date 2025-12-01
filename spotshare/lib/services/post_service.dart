@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:spotshare/services/api_client.dart';
 import 'package:spotshare/services/storage_service.dart';
 import 'package:path/path.dart' as p;
+import 'package:spotshare/services/user_service.dart';
 
 class PostService {
   final ApiClient _client = ApiClient();
@@ -251,4 +252,31 @@ class PostService {
       return false;
     }
   }
+}
+
+// Récupérer le feed découverte
+Future<List<dynamic>> getDiscoveryFeed() async {
+  final token = await StorageService.getToken();
+  // Attention à l'URL, vérifie qu'elle correspond bien à ton backend
+  final url = "${apiClient.baseUrl}/feed/discovery";
+
+  try {
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        "Content-Type": "application/json",
+        if (token != null) "Authorization": "Bearer $token",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      // On renvoie la liste brute (le modèle s'occupera de la conversion plus tard)
+      return jsonDecode(response.body);
+    } else {
+      print("❌ Erreur Feed: ${response.statusCode}");
+    }
+  } catch (e) {
+    print("🔴 Erreur réseau Feed : $e");
+  }
+  return [];
 }
