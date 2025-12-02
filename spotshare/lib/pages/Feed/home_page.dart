@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/models/post_model.dart'; // ✅ On utilise le modèle
+import 'package:spotshare/pages/Search/search_page.dart';
 import 'package:spotshare/services/post_service.dart'; // ✅ On utilise le service
 import 'package:spotshare/widgets/post_card.dart';
 import 'package:spotshare/widgets/stories_bar.dart';
@@ -15,6 +16,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   // On stocke une liste de VRAIS objets PostModel
+  final PostService _postService = PostService();
+  
   List<PostModel> _posts = [];
   bool _isLoading = true;
 
@@ -26,7 +29,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _fetchFeed() async {
     // 1. Appel API
-    final rawData = await getDiscoveryFeed();
+    final rawData = await _postService.getDiscoveryFeed();
     
     if (mounted) {
       setState(() {
@@ -45,6 +48,19 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
+
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search, size: 28),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SearchPage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8), // Petite marge
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _fetchFeed, // Permet de recharger en tirant l'écran

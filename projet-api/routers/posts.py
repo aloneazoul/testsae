@@ -520,3 +520,45 @@ def get_discovery_feed(
 
     res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
     return list(res)
+
+# ============================================================
+# 11. RÉCUPÉRER LES POSTS D'UN UTILISATEUR SPÉCIFIQUE
+# ============================================================
+@router.get("/posts/user/{target_user_id}")
+def get_posts_by_user(
+    target_user_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # On récupère les posts + infos utilisateur + concaténation des URLs des médias
+    sql = text("""
+        SELECT 
+            p.post_id, 
+            p.post_title, 
+            p.post_description, 
+            p.publication_date, 
+            u.user_id, 
+            u.username, 
+            u.profile_picture,
+            
+            -- Récupération des images comme pour le discovery feed
+            (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
+            
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count
+        FROM posts p
+        JOIN users u ON u.user_id = p.user_id
+        WHERE p.user_id = :target_id
+        AND (
+            p.privacy = 'PUBLIC' 
+            OR p.user_id = :current_id -- Je peux voir mes propres posts privés
+        )
+        ORDER BY p.publication_date DESC;
+    """)
+
+    res = db.execute(sql, {
+        "target_id": target_user_id,
+        "current_id": current_user.user_id
+    }).mappings().all()
+    
+    return list(res)

@@ -6,22 +6,47 @@ import sys
 
 # ---- 1️⃣ Récupérer le mot de passe depuis le secret Docker ----
 SECRET_PATH = "/run/secrets/db_password"
+# Variables par défaut (seront écrasées selon l'OS)
+db_port = "3306"
+default_password = ""
 
 if os.path.exists(SECRET_PATH):
+    # Cas Docker Swarm / Prod
     with open(SECRET_PATH, "r") as f:
         DB_PASSWORD = f.read().strip()
+    # En prod Docker, on utilise souvent le nom du service "db" et le port 3306
+    db_host = "db" 
+    db_port = "3306" 
     print("🔐 Mot de passe DB chargé depuis le secret Docker.", flush=True)
-else:
-    print("⚠️ Secret Docker non trouvé, fallback (DEV MODE)", flush=True)
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "root")
-    #DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    
 
-# ---- 2️⃣ Construire la vraie DATABASE_URL utilisée dans Swarm ----
-DATABASE_URL = (
-    f"mysql+pymysql://root:{DB_PASSWORD}@localhost:8889/spotshare"
-    #f"mysql+pymysql://root:{DB_PASSWORD}@localhost:3306/spotshare"
-)
+else:
+    # Cas DEV LOCAL (Mac vs Windows)
+    print("⚠️ Secret Docker non trouvé, passage en mode DEV LOCAL", flush=True)
+    
+    db_host = "localhost"
+
+    if sys.platform == "darwin":
+        # --- CONFIG MAC (MAMP ?) ---
+        print("🍏 Environnement détecté : macOS", flush=True)
+        default_password = "root"
+        db_port = "8889"
+    elif sys.platform == "win32":
+        # --- CONFIG WINDOWS (WAMP / XAMPP ?) ---
+        print("🪟 Environnement détecté : Windows", flush=True)
+        default_password = "" # Souvent vide sur Windows par défaut
+        db_port = "3306"
+    else:
+        # --- CONFIG LINUX / AUTRE ---
+        print("🐧 Environnement détecté : Linux/Autre", flush=True)
+        default_password = "root"
+        db_port = "3306"
+
+    # On laisse la possibilité de surcharger via variable d'environnement si besoin
+    DB_PASSWORD = os.getenv("DB_PASSWORD", default_password)
+
+
+# ---- 2️⃣ Construire la DATABASE_URL dynamique ----
+DATABASE_URL = f"mysql+pymysql://root:{DB_PASSWORD}@{db_host}:{db_port}/spotshare"
 
 print(f"📦 DATABASE_URL = {DATABASE_URL}", flush=True)
 

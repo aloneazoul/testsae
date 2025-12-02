@@ -252,31 +252,45 @@ class PostService {
       return false;
     }
   }
-}
 
-// Récupérer le feed découverte
-Future<List<dynamic>> getDiscoveryFeed() async {
-  final token = await StorageService.getToken();
-  // Attention à l'URL, vérifie qu'elle correspond bien à ton backend
-  final url = "${apiClient.baseUrl}/feed/discovery";
 
-  try {
-    final response = await http.get(
-      Uri.parse(url),
-      headers: {
-        "Content-Type": "application/json",
-        if (token != null) "Authorization": "Bearer $token",
-      },
-    );
+  // Récupérer le feed découverte
+  Future<List<dynamic>> getDiscoveryFeed() async {
+    final token = await StorageService.getToken();
+    // Attention à l'URL, vérifie qu'elle correspond bien à ton backend
+    final url = "${apiClient.baseUrl}/feed/discovery";
 
-    if (response.statusCode == 200) {
-      // On renvoie la liste brute (le modèle s'occupera de la conversion plus tard)
-      return jsonDecode(response.body);
-    } else {
-      print("❌ Erreur Feed: ${response.statusCode}");
+    try {
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          "Content-Type": "application/json",
+          if (token != null) "Authorization": "Bearer $token",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        // On renvoie la liste brute (le modèle s'occupera de la conversion plus tard)
+        return jsonDecode(response.body);
+      } else {
+        print("❌ Erreur Feed: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("🔴 Erreur réseau Feed : $e");
     }
-  } catch (e) {
-    print("🔴 Erreur réseau Feed : $e");
+    return [];
   }
-  return [];
+
+  // Récupérer les posts d'un utilisateur spécifique
+  Future<List<dynamic>> getPostsByUser(String userId) async {
+    try {
+      // Vérifie la route backend (ex: /posts/user/{id})
+      final response = await _client.get("/posts/user/$userId");
+      if (response != null && response is List) return response;
+      return [];
+    } catch (e) {
+      print("❌ Erreur getPostsByUser: $e");
+      return [];
+    }
+  }
 }

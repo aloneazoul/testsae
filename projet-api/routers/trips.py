@@ -4,12 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timezone
-
+import cloudinary
+import cloudinary.uploader
+import os
 import database
 import models
 from .auth import get_current_user
 
 router = APIRouter(tags=["Trips"])
+
+# Config Cloudinary (tu peux aussi le mettre ailleurs et l'importer)
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "dio0m73b8"),
+    api_key=os.getenv("CLOUDINARY_API_KEY", "176583934591119"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET", "EwbWKNCXrzvYNVNGEG72c0nfBF0"),
+)
 
 
 # ============================================================
@@ -22,10 +31,27 @@ def create_trip(
     start_date: str = Form(...),
     end_date: str = Form(...),
     is_public: bool = Form(True),
-    banner: UploadFile = File(None),
+    banner_file: UploadFile = File(None), # Correspond au champ "banner_file" de Flutter
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # 1. Upload de la bannière sur Cloudinary (si présente)
+    banner_url = None
+    if banner_file:
+        try:
+            print(f"📤 Tentative upload banner: {banner_file.filename}")
+            upload_result = cloudinary.uploader.upload(
+                banner_file.file,
+                folder="trips/banners",
+                resource_type="image"
+            )
+            banner_url = upload_result.get("secure_url")
+            print(f"✅ Banner uploadée: {banner_url}")
+        except Exception as e:
+            print(f"⚠️ Erreur upload banner: {e}")
+            # On continue même si l'image plante pour créer le voyage quand même
+
+    # 2. Création de l'objet Trip en base
     trip = models.Trip(
         trip_title=trip_title,
         trip_description=trip_description,
@@ -33,6 +59,7 @@ def create_trip(
         end_date=end_date,
         is_public_flag="Y" if is_public else "N",
         user_id=current_user.user_id,
+        banner=banner_url,  # <--- On enregistre l'URL reçue de Cloudinary
         created_by=current_user.user_id,
         last_modified_by=current_user.user_id,
         last_modification_date=datetime.now(timezone.utc)
@@ -42,8 +69,7 @@ def create_trip(
     db.commit()
     db.refresh(trip)
 
-    return {"message": "Voyage créé", "trip_id": trip.trip_id}
-
+    return {"message": "Voyage créé", "trip_id": trip.trip_id, "banner_url": banner_url}
 
 # ============================================================
 # 2. METTRE À JOUR UN VOYAGE
@@ -302,3 +328,22 @@ def get_trip_posts(
     res = db.query(models.Post).filter_by(trip_id=trip_id).order_by(models.Post.creation_date).all()
 
     return res
+
+# ============================================================
+# 12. RÉCUPÉRER LES VOYAGES D'UN UTILISATEUR SPÉCIFIQUE
+# ============================================================
+@router.get("/trips/user/{target_user_id}")
+def get_trips_by_user(
+    target_user_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # On prépare la requête de base
+    query = db.query(models.Trip).filter(models.Trip.user_id == target_user_id)
+
+    # Si ce n'est pas MOI qui regarde MON profil, on ne montre que les voyages PUBLICS
+    if current_user.user_id != target_user_id:
+        query = query.filter(models.Trip.is_public_flag == "Y")
+
+    trips = query.all()
+    return trips

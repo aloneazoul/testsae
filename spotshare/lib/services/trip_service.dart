@@ -111,4 +111,17 @@ class TripService {
       return [];
     }
   }
+  
+// Récupérer les voyages d'un utilisateur spécifique
+Future<List<dynamic>> getTripsByUser(String userId) async {
+  try {
+    // Vérifie la route backend (ex: /trips/user/{id})
+    final response = await _client.get("/trips/user/$userId"); 
+    if (response != null && response is List) return response;
+    return [];
+  } catch (e) {
+    print("❌ Erreur getTripsByUser: $e");
+    return [];
+  }
+}
 }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/models/post_model.dart';
-import 'package:spotshare/pages/Feed/profile/profile_page.dart'; // Assure-toi que le chemin est bon selon ton projet
+import 'package:spotshare/pages/Account/profile_page.dart'; // Assure-toi que le chemin est bon selon ton projet
 import 'package:spotshare/utils/constants.dart';
 
 final List<Map<String, String>> sampleComments = [
@@ -186,8 +186,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      // Note : ProfilePage nécessite peut-être d'autres paramètres selon ta modif
-                      builder: (_) => ProfilePage(userName: widget.post.userName),
+                      builder: (_) => ProfilePage(userId: widget.post.userId),
                     ),
                   );
                 },

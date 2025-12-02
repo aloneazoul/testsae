@@ -12,6 +12,66 @@ from .notifications import create_notification
 
 router = APIRouter(tags=["Followers"])
 
+# ============================================================
+# HELPER : GÉRER L'AMITIÉ AUTOMATIQUE
+# ============================================================
+def check_and_create_friendship(db: Session, user_a_id: int, user_b_id: int):
+    """
+    Vérifie si A suit B et B suit A. Si oui, crée une amitié (Friends).
+    """
+    # 1. Est-ce que A suit B (ACCEPTED) ?
+    follow_a_to_b = db.query(models.Follower).filter_by(
+        user_id=user_b_id, follower_user_id=user_a_id, status="ACCEPTED"
+    ).first()
+
+    # 2. Est-ce que B suit A (ACCEPTED) ?
+    follow_b_to_a = db.query(models.Follower).filter_by(
+        user_id=user_a_id, follower_user_id=user_b_id, status="ACCEPTED"
+    ).first()
+
+    # Si les deux se suivent mutuellement
+    if follow_a_to_b and follow_b_to_a:
+        # On vérifie si l'amitié existe déjà pour éviter les doublons
+        existing_friend = db.query(models.Friend).filter_by(
+            user_id=user_a_id, user_id_friend=user_b_id
+        ).first()
+
+        if not existing_friend:
+            # On crée l'amitié dans les deux sens (pour simplifier les requêtes SQL plus tard)
+            f1 = models.Friend(
+                user_id=user_a_id, user_id_friend=user_b_id, status="ACCEPTED",
+                created_by=user_a_id, last_modified_by=user_a_id
+            )
+            f2 = models.Friend(
+                user_id=user_b_id, user_id_friend=user_a_id, status="ACCEPTED",
+                created_by=user_b_id, last_modified_by=user_b_id
+            )
+            db.add_all([f1, f2])
+            db.commit()
+            
+            # Notification "Vous êtes désormais amis"
+            create_notification(db, user_a_id, "FRIEND_REQUEST", f"Vous et {follow_b_to_a.user.username} êtes désormais amis !", user_b_id, "users", user_b_id)
+            create_notification(db, user_b_id, "FRIEND_REQUEST", f"Vous et {follow_a_to_b.user.username} êtes désormais amis !", user_a_id, "users", user_a_id)
+            print(f"✅ Amitié créée entre {user_a_id} et {user_b_id}")
+
+
+def remove_friendship(db: Session, user_a_id: int, user_b_id: int):
+    """
+    Si l'un des deux arrête de suivre l'autre, l'amitié est rompue.
+    """
+    friends = db.query(models.Friend).filter(
+        or_(
+            (models.Friend.user_id == user_a_id) & (models.Friend.user_id_friend == user_b_id),
+            (models.Friend.user_id == user_b_id) & (models.Friend.user_id_friend == user_a_id)
+        )
+    ).all()
+
+    if friends:
+        for f in friends:
+            db.delete(f)
+        db.commit()
+        print(f"💔 Amitié supprimée entre {user_a_id} et {user_b_id}")
+
 
 # ============================================================
 # 1. SUIVRE UN UTILISATEUR

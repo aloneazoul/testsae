@@ -21,14 +21,17 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET", "EwbWKNCXrzvYNVNGEG72c0nfBF0"),
 )
 
-
-
-
 @router.get("/me")
-def me(current_user: models.User = Depends(get_current_user)):
-    """
-    Retourne les infos de l'utilisateur connecté.
-    """
+def me(
+    db: Session = Depends(get_db),  # <--- Important : on a besoin de la DB ici
+    current_user: models.User = Depends(get_current_user)
+):
+    # 👇 CES LIGNES SONT INDISPENSABLES POUR LE CALCUL
+    followers_count = db.query(models.Follower).filter_by(user_id=current_user.user_id, status="ACCEPTED").count()
+    following_count = db.query(models.Follower).filter_by(follower_user_id=current_user.user_id, status="ACCEPTED").count()
+    posts_count = db.query(models.Post).filter_by(user_id=current_user.user_id).count()
+    # 👆 FIN DU CALCUL
+
     return {
         "id": current_user.user_id,
         "email": current_user.email,
@@ -39,9 +42,12 @@ def me(current_user: models.User = Depends(get_current_user)):
         "birth_date": current_user.birth_date,
         "is_private": current_user.is_private_flag == "Y",
         "img": current_user.profile_picture,
+        
+        # On injecte les variables calculées au-dessus
+        "followers_count": followers_count,
+        "following_count": following_count,
+        "posts_count": posts_count,
     }
-
-
 
 @router.post("/me/avatar")
 def upload_avatar(
@@ -183,20 +189,110 @@ def get_my_saved_posts(
     return list(res)
 
 
+# ============================================================
+# 6. RÉCUPÉRER UN UTILISATEUR PAR SON ID (PUBLIC)
+# ============================================================
+@router.get("/users/{user_id}")
+def get_user_by_id(
+    user_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
 
-@router.get("/me")
-def me(current_user: models.User = Depends(get_current_user)):
-    """
-    Retourne les infos de l'utilisateur connecté.
-    """
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    # Relations
+    is_following = False
+    rel_me_to_him = db.query(models.Follower).filter_by(
+        user_id=user_id,
+        follower_user_id=current_user.user_id,
+        status="ACCEPTED"
+    ).first()
+    if rel_me_to_him:
+        is_following = True
+
+    follows_me = False
+    rel_him_to_me = db.query(models.Follower).filter_by(
+        user_id=current_user.user_id,
+        follower_user_id=user_id,
+        status="ACCEPTED"
+    ).first()
+    if rel_him_to_me:
+        follows_me = True
+
+    # Stats pour l'utilisateur visité
+    followers_count = db.query(models.Follower).filter_by(user_id=user_id, status="ACCEPTED").count()
+    following_count = db.query(models.Follower).filter_by(follower_user_id=user_id, status="ACCEPTED").count()
+    posts_count = db.query(models.Post).filter_by(user_id=user_id).count()
+
     return {
-        "id": current_user.user_id,
-        "email": current_user.email,
-        "pseudo": current_user.username,
-        "gender": current_user.gender,
-        "bio": current_user.bio,
-        "phone": current_user.phone_number,
-        "birth_date": current_user.birth_date,
-        "is_private": current_user.is_private_flag == "Y",
-        "img": current_user.profile_picture,
+        "id": user.user_id,
+        "pseudo": user.username,
+        "bio": user.bio,
+        "img": user.profile_picture,
+        "is_private": user.is_private_flag == "Y",
+        "is_following": is_following,
+        "follows_me": follows_me,
+        "followers_count": followers_count,
+        "following_count": following_count,
+        "posts_count": posts_count,
     }
+
+# ============================================================
+# 7. RECHERCHE UTILISATEURS AVEC STATUT PRÉCIS
+# ============================================================
+@router.get("/search/users")
+def search_users(
+    query: str = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Récupération des utilisateurs (50 max)
+    if not query or query.strip() == "":
+        users = db.query(models.User).filter(
+            models.User.user_id != current_user.user_id
+        ).limit(50).all()
+    else:
+        users = db.query(models.User).filter(
+            models.User.username.ilike(f"%{query}%"),
+            models.User.user_id != current_user.user_id
+        ).limit(50).all()
+
+    results = []
+    for u in users:
+        status_text = ""
+
+        # 1. Est-ce que JE le suis ?
+        i_follow_him = db.query(models.Follower).filter_by(
+            user_id=u.user_id,                  # Cible = Lui
+            follower_user_id=current_user.user_id, # Follower = Moi
+            status="ACCEPTED"
+        ).first()
+
+        # 2. Est-ce qu'IL me suit ?
+        he_follows_me = db.query(models.Follower).filter_by(
+            user_id=current_user.user_id,       # Cible = Moi
+            follower_user_id=u.user_id,         # Follower = Lui
+            status="ACCEPTED"
+        ).first()
+
+        # --- LOGIQUE DES STATUTS ---
+        if i_follow_him and he_follows_me:
+            status_text = "ami(e)s"     # Mutuel
+        elif i_follow_him:
+            status_text = "Suivi"       # Je le suis (mais pas lui)
+        elif he_follows_me:
+            status_text = "vous suit"   # Il me suit (mais pas moi)
+        
+        # Sinon "" (Rien)
+
+        results.append({
+            "user_id": u.user_id,
+            "username": u.username,
+            "profile_picture": u.profile_picture,
+            "status": status_text
+        })
+
+    return results
