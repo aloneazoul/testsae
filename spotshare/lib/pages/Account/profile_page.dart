@@ -368,7 +368,6 @@ class _ProfilePageState extends State<ProfilePage>
         final post = _myPosts[index];
         final int postId = post['post_id'];
 
-        // On récupère les médias pour savoir si c'est un carrousel (icone) et afficher la vignette
         return FutureBuilder<List<dynamic>>(
           future: _postService.getMediaTripPosts(postId),
           builder: (context, snapshot) {
@@ -394,36 +393,35 @@ class _ProfilePageState extends State<ProfilePage>
               isMultiple: isMultiple,
               onTap: () async {
                 if (_userData != null) {
-                  // <--- MODIFICATION : On vérifie si c'est MON profil
-                  // Si c'est mon profil, on passe mon ID pour activer le mode Owner.
-                  // Sinon, on passe "0" pour désactiver la suppression.
+                  // ID utilisé pour le mode "Owner"
                   final String myId = isMyProfile
                       ? (_userData!['id']?.toString() ??
                           _userData!['user_id']?.toString() ??
                           "0")
                       : "0";
 
-                  final bool reponse = await Navigator.push(
+                  // On attend le retour de la page (true si like ou delete)
+                  final bool? shouldRefresh = await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => PostFeedPage(
-                        postsRaw: _myPosts, // Toute la liste
-                        userData: _userData!, // Tes infos profil
-                        initialIndex: index, // L'index pour scroller
-                        currentLoggedUserId:
-                            myId, // ID utilisé pour le mode "Owner"
+                        postsRaw: _myPosts,
+                        userData: _userData!,
+                        initialIndex: index,
+                        currentLoggedUserId: myId,
                       ),
                     ),
                   );
 
-                  if (reponse == true) {
-                    _loadAllData();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Post Supprimé !"),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
+                  // 👇 MODIFICATION ICI 👇
+                  if (shouldRefresh == true) {
+                    // On recharge juste les données pour mettre à jour les cœurs
+                    _loadAllData(); 
+                    
+                    // J'ai enlevé le SnackBar "Post Supprimé" ici car
+                    // on ne sait pas si c'est un like ou une suppression.
+                    // Si tu veux vraiment confirmer la suppression,
+                    // le mieux est de vérifier si la liste a diminué après le reload.
                   }
                 }
               },
@@ -433,7 +431,7 @@ class _ProfilePageState extends State<ProfilePage>
       },
     );
   }
-
+  
   Widget _buildVoyagesTab() {
     // On utilise un Stack pour placer le bouton "+" par-dessus la liste
     return Stack(

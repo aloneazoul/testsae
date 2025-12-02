@@ -115,8 +115,16 @@ def get_feed(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # AJOUT : likes_count, comments_count, et is_liked (si l'user a liké)
     sql = text("""
-        SELECT p.*, u.username, u.profile_picture
+        SELECT 
+            p.*, 
+            u.username, 
+            u.profile_picture,
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :me) as is_liked,
+            (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
         WHERE 
@@ -469,29 +477,57 @@ def get_post_first_media(
 
 
 # ============================================================
-# 9. RÉCUPÉRER TOUS LES POSTS
+# 9. RÉCUPÉRER TOUS LES POSTS (Mes posts à moi)
 # ============================================================
 @router.get("/posts")
 def get_post(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    res = db.query(models.Post).filter_by(user_id=current_user.user_id).order_by(desc(models.Post.creation_date)).all()
+    # ON REMPLACE L'ORM PAR DU SQL POUR AVOIR 'is_liked' et les compteurs
+    sql = text("""
+        SELECT 
+            p.post_id, 
+            p.post_title, 
+            p.post_description, 
+            p.publication_date, 
+            p.user_id,
+            u.username, 
+            u.profile_picture,
             
+            -- Récupération des médias
+            (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
+            
+            -- Compteurs
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
+
+            -- 👇 LE POINT CRUCIAL : Est-ce que JE l'ai liké ?
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :me) as is_liked
+
+        FROM posts p
+        JOIN users u ON u.user_id = p.user_id
+        WHERE p.user_id = :me
+        ORDER BY p.publication_date DESC
+    """)
+
+    res = db.execute(sql, {"me": current_user.user_id}).mappings().all()
+    
     if not res:
-        return None
+        return []
     else:
         return list(res)
     
 
 # ============================================================
-# 10. RÉCUPÉRER TOUS LES DERNIERS POSTS DE CHAQUE UTILISATEUR (faire un meilleure algorithme plus tard)
+# 10. FEED DÉCOUVERTE
 # ============================================================
 @router.get("/feed/discovery")
 def get_discovery_feed(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # AJOUT : is_liked
     sql = text("""
         SELECT 
             p.post_id, 
@@ -502,11 +538,13 @@ def get_discovery_feed(
             u.username, 
             u.profile_picture,
             
-            -- 👇 MODIFICATION ICI : On récupère TOUTES les URLs séparées par une virgule
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
-            
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
-            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
+            
+            -- Vérifie si l'utilisateur courant (:uid) a liké ce post
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :uid) as is_liked
+
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
         INNER JOIN (
@@ -521,8 +559,9 @@ def get_discovery_feed(
     res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
     return list(res)
 
+
 # ============================================================
-# 11. RÉCUPÉRER LES POSTS D'UN UTILISATEUR SPÉCIFIQUE
+# 11. POSTS D'UN UTILISATEUR
 # ============================================================
 @router.get("/posts/user/{target_user_id}")
 def get_posts_by_user(
@@ -530,7 +569,7 @@ def get_posts_by_user(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # On récupère les posts + infos utilisateur + concaténation des URLs des médias
+    # AJOUT DE LA LIGNE 'is_liked' 👇
     sql = text("""
         SELECT 
             p.post_id, 
@@ -541,17 +580,20 @@ def get_posts_by_user(
             u.username, 
             u.profile_picture,
             
-            -- Récupération des images comme pour le discovery feed
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
             
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
-            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
+
+            -- 👇 C'est cette ligne qui manquait pour que le coeur reste rouge au reload !
+            (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :current_id) as is_liked
+
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
         WHERE p.user_id = :target_id
         AND (
             p.privacy = 'PUBLIC' 
-            OR p.user_id = :current_id -- Je peux voir mes propres posts privés
+            OR p.user_id = :current_id
         )
         ORDER BY p.publication_date DESC;
     """)

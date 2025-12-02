@@ -293,4 +293,33 @@ class PostService {
       return [];
     }
   }
+
+  /// Liker un post
+  Future<bool> likePost(String postId) async {
+    try {
+      final response = await _client.post("/posts/$postId/like", {});
+      // Si l'API retourne un message de succès (ou "Déjà liké"), c'est bon
+      if (response != null && response['message'] != null) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print("❌ Erreur likePost: $e");
+      return false;
+    }
+  }
+
+  /// Disliker (enlever le like)
+  Future<bool> unlikePost(String postId) async {
+    try {
+      final response = await _client.delete("/posts/$postId/like");
+      if (response != null && response['message'] != null) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print("❌ Erreur unlikePost: $e");
+      return false;
+    }
+  }
 }
