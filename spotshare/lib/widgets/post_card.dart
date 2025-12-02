@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/models/post_model.dart';
+import 'package:spotshare/models/comment_model.dart';
 import 'package:spotshare/pages/Account/profile_page.dart';
 import 'package:spotshare/services/post_service.dart';
+import 'package:spotshare/services/comment_service.dart';
+import 'package:spotshare/services/user_service.dart'; // <--- IMPORT AJOUTÉ
 import 'package:spotshare/utils/constants.dart';
-
-final List<Map<String, String>> sampleComments = [
-  {'user': 'Emma', 'text': 'Trop cool ton post !', 'avatar': 'https://picsum.photos/seed/emma/50'},
-];
 
 class PostCard extends StatefulWidget {
   final PostModel post;
   final bool isOwner; 
   final VoidCallback? onDelete;
-  // Optionnel : permet de notifier le parent qu'un like a eu lieu
   final Function(bool isLiked, int newCount)? onLikeChanged; 
+  final Function(int newCount)? onCommentAdded;
 
   const PostCard({
     required this.post, 
     this.isOwner = false, 
     this.onDelete,
     this.onLikeChanged,
+    this.onCommentAdded,
     Key? key
   }) : super(key: key);
 
@@ -46,13 +46,12 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    // On initialise avec les données venant de l'API (via le modèle)
     isLiked = widget.post.isLiked;
     likeCount = widget.post.likes;
     commentCount = widget.post.comments;
     
     _pageController = PageController();
-    imageHeights = List.filled(widget.post.imageUrls.length, 250);
+    imageHeights = List.filled(widget.post.imageUrls.isNotEmpty ? widget.post.imageUrls.length : 1, 250);
 
     _heartController = AnimationController(
       duration: const Duration(milliseconds: 700),
@@ -85,12 +84,15 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
   }
 
   void _updateImageHeights() {
+    if (!mounted) return;
     final screenWidth = MediaQuery.of(context).size.width;
-    setState(() {
-      imageHeights = widget.post.imageUrls
-          .map((url) => _calculateHeight(url, screenWidth))
-          .toList();
-    });
+    if (widget.post.imageUrls.isNotEmpty) {
+      setState(() {
+        imageHeights = widget.post.imageUrls
+            .map((url) => _calculateHeight(url, screenWidth))
+            .toList();
+      });
+    }
   }
 
   @override
@@ -101,7 +103,6 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
   }
 
   Future<void> _toggleLike() async {
-    // 1. Mise à jour visuelle immédiate (Optimistic UI)
     setState(() {
       if (isLiked) {
         isLiked = false;
@@ -112,34 +113,27 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
       }
     });
 
-    // Notifier le parent si besoin
     if (widget.onLikeChanged != null) {
       widget.onLikeChanged!(isLiked, likeCount);
     }
 
-    // 2. Appel API
     bool success;
     if (isLiked) {
-      // On vient de passer à TRUE
       success = await _postService.likePost(widget.post.id);
     } else {
-      // On vient de passer à FALSE
       success = await _postService.unlikePost(widget.post.id);
     }
 
-    // 3. Si erreur, on annule
-    if (!success) {
-       if (mounted) {
-        setState(() {
-          if (isLiked) {
-            isLiked = false;
-            likeCount--;
-          } else {
-            isLiked = true;
-            likeCount++;
-          }
-        });
-      }
+    if (!success && mounted) {
+      setState(() {
+        if (isLiked) {
+          isLiked = false;
+          likeCount--;
+        } else {
+          isLiked = true;
+          likeCount++;
+        }
+      });
     }
   }
 
@@ -317,7 +311,6 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
             ),
           ),
 
-
         // --- POINTS INDICATEURS ---
         if (widget.post.imageUrls.length > 1)
           Padding(
@@ -344,7 +337,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
           child: Row(
             children: [
               GestureDetector(
-                onTap: _toggleLike, // Appel direct à la fonction toggle
+                onTap: _toggleLike,
                 child: Icon(
                   isLiked ? Icons.favorite : Icons.favorite_border,
                   color: isLiked ? dGreen : Colors.white,
@@ -386,10 +379,348 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     );
   }
 
-  // --- MODAL COMMENTAIRES (Simulé) ---
+  // --- MODAL COMMENTAIRES ---
   void _showCommentsModal(BuildContext context) {
-     // ... (même code qu'avant pour les commentaires)
-     // Je l'abrège pour la lisibilité, tu peux garder ton implémentation actuelle
-     showModalBottomSheet(context: context, builder: (_) => Container(height: 200, color: dGrey));
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, 
+      backgroundColor: Colors.transparent, 
+      builder: (ctx) => Padding(
+        padding: MediaQuery.of(context).viewInsets, // Gère le clavier
+        child: _CommentsSheet(
+          postId: widget.post.id,
+          commentCount: commentCount,
+          onCommentAdded: () {
+            setState(() {
+              commentCount++;
+            });
+            if (widget.onCommentAdded != null) {
+              widget.onCommentAdded!(commentCount);
+            }
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WIDGET INTERNE POUR LA FEUILLE DE COMMENTAIRES
+// ---------------------------------------------------------------------------
+class _CommentsSheet extends StatefulWidget {
+  final String postId;
+  final int commentCount;
+  final VoidCallback onCommentAdded;
+
+  const _CommentsSheet({
+    required this.postId,
+    required this.commentCount,
+    required this.onCommentAdded,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  State<_CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends State<_CommentsSheet> {
+  final CommentService _commentService = CommentService();
+  final TextEditingController _textController = TextEditingController();
+  
+  List<CommentModel> _comments = [];
+  bool _isLoading = true;
+  bool _isSending = false;
+
+  // Stocke l'avatar de l'utilisateur connecté (celui qui tape le commentaire)
+  String? _myProfilePic;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchComments();
+    _loadCurrentUser(); // <--- On charge l'avatar de l'utilisateur courant
+  }
+
+  Future<void> _loadCurrentUser() async {
+    // Appel au service pour récupérer "Mon Profil"
+    final profile = await getMyProfile();
+    if (profile != null && mounted) {
+      setState(() {
+        // On essaie plusieurs clés car l'API peut varier (profile_picture, img, etc.)
+        _myProfilePic = profile['profile_picture'] ?? profile['img'];
+      });
+    }
+  }
+
+  Future<void> _fetchComments() async {
+    setState(() => _isLoading = true);
+    final comments = await _commentService.getComments(widget.postId);
+    if (mounted) {
+      setState(() {
+        _comments = comments;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _sendComment() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() => _isSending = true);
+    
+    final success = await _commentService.postComment(widget.postId, text);
+    
+    if (mounted) {
+      setState(() => _isSending = false);
+      if (success) {
+        _textController.clear();
+        FocusScope.of(context).unfocus(); 
+        widget.onCommentAdded(); 
+        _fetchComments(); 
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erreur lors de l'envoi du commentaire")),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  String _formatDate(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inDays > 7) return "${date.day}-${date.month}";
+    if (diff.inDays >= 1) return "${diff.inDays}j";
+    if (diff.inHours >= 1) return "${diff.inHours}h";
+    if (diff.inMinutes >= 1) return "${diff.inMinutes}m";
+    return "À l'instant";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color bgModal = Color(0xFF121212);
+    const Color bgInput = Color(0xFF2C2C2C);
+    const Color textGrey = Color(0xFF8A8A8A);
+    const Color userGrey = Color(0xFFB0B0B0);
+    
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75, 
+      decoration: const BoxDecoration(
+        color: bgModal,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          // --- HEADER MODAL ---
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[600],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "${widget.commentCount} commentaires",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFF333333)),
+
+          // --- LISTE DES COMMENTAIRES ---
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: dGreen))
+                : _comments.isEmpty
+                    ? Center(child: Text("Sois le premier à commenter !", style: TextStyle(color: Colors.grey[400])))
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        itemCount: _comments.length,
+                        itemBuilder: (context, index) {
+                          final comment = _comments[index];
+                          bool liked = false;
+                          int likes = 0; 
+                          return StatefulBuilder(
+                            builder: (context, setSB) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 16,
+                                      backgroundImage: comment.profilePicture.isNotEmpty
+                                          ? NetworkImage(comment.profilePicture)
+                                          : null,
+                                      backgroundColor: Colors.grey[800],
+                                      child: comment.profilePicture.isEmpty 
+                                          ? const Icon(Icons.person, size: 20, color: Colors.white) 
+                                          : null,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            comment.username,
+                                            style: const TextStyle(
+                                              color: userGrey, 
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            comment.content,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 14,
+                                              height: 1.3,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                _formatDate(comment.createdAt),
+                                                style: const TextStyle(color: textGrey, fontSize: 13),
+                                              ),
+                                              const SizedBox(width: 16),
+                                              const Text(
+                                                "Répondre",
+                                                style: TextStyle(color: textGrey, fontSize: 13, fontWeight: FontWeight.w500),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    GestureDetector(
+                                      onTap: () {
+                                        setSB(() {
+                                          liked = !liked;
+                                          likes += liked ? 1 : -1;
+                                        });
+                                      },
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            liked ? Icons.favorite : Icons.favorite_border,
+                                            color: liked ? Colors.red : Colors.grey[600],
+                                            size: 20,
+                                          ),
+                                          if (likes > 0)
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                "$likes",
+                                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          );
+                        },
+                      ),
+          ),
+
+          // --- ZONE D'ÉCRITURE ---
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 8),
+              decoration: const BoxDecoration(
+                color: bgModal, 
+                border: Border(top: BorderSide(color: Color(0xFF333333), width: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  // PHOTO DE PROFIL CHARGÉE LOCALEMENT
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundImage: (_myProfilePic != null && _myProfilePic!.isNotEmpty) 
+                        ? NetworkImage(_myProfilePic!)
+                        : null,
+                    backgroundColor: Colors.grey[800],
+                    child: (_myProfilePic == null || _myProfilePic!.isEmpty)
+                        ? const Icon(Icons.person, color: Colors.white, size: 20)
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  
+                  // Champ texte
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: bgInput,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: TextField(
+                        controller: _textController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: const InputDecoration(
+                          hintText: "Ajouter un commentaire...",
+                          hintStyle: TextStyle(color: Color(0xFF8A8A8A), fontSize: 14),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        minLines: 1,
+                        maxLines: 4,
+                      ),
+                    ),
+                  ),
+                  
+                  // Bouton Envoyer
+                  const SizedBox(width: 12),
+                   GestureDetector(
+                    onTap: _isSending ? null : _sendComment,
+                    child: _isSending
+                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: dGreen, strokeWidth: 2))
+                        : Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                               color: Colors.transparent, 
+                               shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.arrow_upward, 
+                              color: dGreen,
+                              size: 24,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

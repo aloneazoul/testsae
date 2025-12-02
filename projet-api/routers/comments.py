@@ -17,13 +17,30 @@ def list_comments(
     post_id: int,
     db: Session = Depends(database.get_db),
 ):
-    comments = (
-        db.query(models.Comment)
+    # On fait une jointure entre Comment et User pour récupérer pseudo + avatar
+    results = (
+        db.query(models.Comment, models.User)
+        .join(models.User, models.Comment.user_id == models.User.user_id)
         .filter(models.Comment.post_id == post_id)
         .order_by(models.Comment.creation_date.asc())
         .all()
     )
-    return comments
+
+    # On construit une liste personnalisée avec les infos des deux tables
+    comments_list = []
+    for comment, user in results:
+        comments_list.append({
+            "comment_id": comment.comment_id,
+            "post_id": comment.post_id,
+            "user_id": comment.user_id,
+            "content": comment.content,
+            "created_at": comment.creation_date,
+            # C'est ici qu'on ajoute les infos manquantes pour l'affichage :
+            "username": user.username,
+            "profile_picture": user.profile_picture
+        })
+    
+    return comments_list
 
 
 @router.post("/posts/{post_id}/comments")
@@ -56,6 +73,7 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+    
     # 🔔 notif au propriétaire du post
     if post.user_id != current_user.user_id:
         create_notification(
@@ -79,6 +97,7 @@ def create_comment(
             related_table="comments",
             creator_id=current_user.user_id,
         )
+        
     return {"message": "Commentaire créé", "comment_id": comment.comment_id}
 
 
@@ -92,7 +111,6 @@ def delete_comment(
     if not comment:
         raise HTTPException(404, "Commentaire introuvable")
 
-    # On autorise la suppression par l'auteur du commentaire uniquement (tu peux ajouter le owner du post si tu veux)
     if comment.user_id != current_user.user_id:
         raise HTTPException(403, "Tu ne peux supprimer que tes commentaires")
 
