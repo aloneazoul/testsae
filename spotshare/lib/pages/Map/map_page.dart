@@ -3,11 +3,13 @@ import 'dart:math';
 import 'package:spotshare/models/landmark.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:spotshare/models/post_model.dart';
 import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/trip_service.dart';
 import 'dart:ui' as ui;
 
 import 'package:spotshare/services/user_service.dart';
+import 'package:spotshare/widgets/post_card.dart';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key, this.data = 1, this.trip = null});
@@ -84,7 +86,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
       GesturesSettings(rotateEnabled: false, pitchEnabled: false),
     );
   }
-
+  /*
   void _loadDemoLandmarks() {
     _landmarks.addAll([
       Landmark(
@@ -128,7 +130,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
         images: ["assets/images/muraille_chine.webp"],
       ),
     ]);
-  }
+  }*/
 
   Future<void> _loadTripLandmarks(dynamic trip) async {
     final user = await getMyProfile();
@@ -163,6 +165,8 @@ class _DarkMapboxWidgetState extends State<MapPage> {
       final lon = post["longitude"];
       final lat = post["latitude"];
 
+      final vrai_post = PostModel.fromJson(post);
+
       if (lon == null || lat == null) {
         print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
         continue;
@@ -181,6 +185,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
             ),
           ),
           images: mediaUrls,
+          post: vrai_post,
         ),
       );
     }
@@ -211,6 +216,8 @@ class _DarkMapboxWidgetState extends State<MapPage> {
       final lon = post["longitude"];
       final lat = post["latitude"];
 
+      final vrai_post = PostModel.fromJson(post);
+
       if (lon == null || lat == null) {
         print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
         continue;
@@ -229,9 +236,12 @@ class _DarkMapboxWidgetState extends State<MapPage> {
             ),
           ),
           images: mediaUrls,
+          post: vrai_post,
         ),
       );
     }
+
+    print(_landmarks);
   }
 
   @override
@@ -350,305 +360,67 @@ class _LandmarkPopupState extends State<_LandmarkPopup> {
   bool isCommentMode = false;
   bool isShareMode = false;
 
-  final List<String> comments = [
-    "Incroyable endroit !",
-    "J’aimerais tellement y aller 😍",
-    "Magnifique photo 🔥",
-  ];
-
-  final List<Map<String, dynamic>> accounts = [
-    {"name": "Votre story", "icon": Icons.history, "isStory": true},
-    {"name": "Alexis", "icon": Icons.person},
-    {"name": "Clem", "icon": Icons.person},
-    {"name": "Antoine", "icon": Icons.person},
-    {"name": "Marie", "icon": Icons.person},
-  ];
-
   @override
   Widget build(BuildContext context) {
     return FractionallySizedBox(
-      heightFactor: isCommentMode ? 0.85 : 0.50,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 8),
-            child: Center(
+      heightFactor: 0.90,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF111111),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // --- Barre de poignée ---
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
               child: Container(
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(20),
                 ),
               ),
             ),
-          ),
 
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.22,
-            child: PageView.builder(
-              itemCount: widget.landmark.images.length,
-              controller: PageController(viewportFraction: 0.9),
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: (widget.landmark.images[index].startsWith('http')
-                        ? Image.network(
-                            widget.landmark.images[index],
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                                  color: Colors.grey[300],
-                                  child: Icon(Icons.broken_image),
-                                ),
-                          )
-                        : Image.asset(
-                            widget.landmark.images[index],
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          )),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.landmark.name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "Partagé par ${widget.landmark.owner}",
-                  style: TextStyle(color: Colors.grey[400]),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "Date : 12 Octobre 2025",
-                  style: TextStyle(color: Colors.grey[500]),
-                ),
-              ],
-            ),
-          ),
-
-          if (isCommentMode) ...[
+            // --- TITRE ---
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => isCommentMode = false),
-                    child: const Icon(Icons.arrow_back, color: Colors.white),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    "Commentaires",
-                    style: TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                ],
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Text(
+                widget.landmark.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
 
-            const SizedBox(height: 10),
-
+            // --- CORPS SCROLLABLE ---
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: comments
-                    .map(
-                      (c) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          children: [
-                            const CircleAvatar(
-                              radius: 16,
-                              backgroundColor: Colors.grey,
-                              child: Icon(Icons.person, color: Colors.white),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.white12,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  c,
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    children: [
+                      PostCard(
+                        post: widget.landmark.post,
+                        textSize: 13,
+                        isOwner: false,
+                        onLikeChanged: (liked, count) {},
+                        onCommentAdded: (newCount) {},
                       ),
-                    )
-                    .toList(),
-              ),
-            ),
 
-            Container(
-              padding: const EdgeInsets.all(12),
-              color: Colors.black54,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      minLines: 1,
-                      maxLines: 3,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: "Ajouter un commentaire...",
-                        hintStyle: TextStyle(color: Colors.white54),
-                        filled: true,
-                        fillColor: Colors.white12,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
+                      const SizedBox(height: 20),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  const Icon(Icons.send, color: Colors.white),
-                ],
-              ),
-            ),
-          ] else if (isShareMode) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => isShareMode = false),
-                    child: const Icon(Icons.arrow_back, color: Colors.white),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    "Partager",
-                    style: TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            SizedBox(
-              height: 80,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: accounts.length,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemBuilder: (context, index) {
-                  final acc = accounts[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 20),
-                    child: SizedBox(
-                      width: 70,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundColor: acc["isStory"] == true
-                                ? Colors.orange
-                                : Colors.grey,
-                            child: Icon(
-                              acc["icon"],
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Flexible(
-                            child: Text(
-                              acc["name"],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ] else ...[
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 32.0,
-                vertical: 8,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  GestureDetector(
-                    onTap: () async {
-                      setState(() {
-                        isLiked = !isLiked;
-                        heartScale = 1.3;
-                      });
-                      await Future.delayed(const Duration(milliseconds: 140));
-                      if (!mounted) return;
-                      setState(() => heartScale = 1.0);
-                    },
-                    child: Transform.scale(
-                      scale: heartScale,
-                      child: Icon(
-                        isLiked ? Icons.favorite : Icons.favorite_border,
-                        color: isLiked ? Colors.red : Colors.white,
-                        size: 30,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      isCommentMode = true;
-                      isShareMode = false;
-                    }),
-                    child: const Icon(
-                      Icons.chat_bubble_outline,
-                      color: Colors.white,
-                      size: 28,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      isShareMode = true;
-                      isCommentMode = false;
-                    }),
-                    child: const Icon(
-                      Icons.share_outlined,
-                      color: Colors.white,
-                      size: 28,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }

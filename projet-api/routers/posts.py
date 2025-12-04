@@ -115,32 +115,33 @@ def get_feed(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # AJOUT : likes_count, comments_count, et is_liked (si l'user a liké)
     sql = text("""
         SELECT 
             p.*, 
             u.username, 
             u.profile_picture,
+            t.trip_title,             -- ✈️ Titre du voyage
+            pl.place_name,            -- 📍 Nom du lieu précis
+            c.city_name,              -- 🏙️ Ville
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :me) as is_liked,
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
+        LEFT JOIN trips t ON p.trip_id = t.trip_id          -- Jointure Voyage
+        LEFT JOIN places pl ON p.place_id = pl.place_id     -- Jointure Lieu
+        LEFT JOIN cities c ON pl.city_id = c.city_id        -- Jointure Ville
         WHERE 
             p.privacy = 'PUBLIC'
             OR (p.privacy = 'FRIENDS' AND p.user_id IN (
                 SELECT 
-                    CASE 
-                        WHEN f.user_id = :me THEN f.user_id_friend
-                        ELSE f.user_id
-                    END
+                    CASE WHEN f.user_id = :me THEN f.user_id_friend ELSE f.user_id END
                 FROM friends f
-                WHERE f.status = 'ACCEPTED'
-                AND (f.user_id = :me OR f.user_id_friend = :me)
+                WHERE f.status = 'ACCEPTED' AND (f.user_id = :me OR f.user_id_friend = :me)
             ))
             OR p.user_id = :me
-        ORDER BY publication_date DESC
+        ORDER BY p.publication_date DESC
         LIMIT 100
     """)
 
@@ -484,69 +485,60 @@ def get_post(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # ON REMPLACE L'ORM PAR DU SQL POUR AVOIR 'is_liked' et les compteurs
     sql = text("""
         SELECT 
-            p.post_id, 
-            p.post_title, 
-            p.post_description, 
-            p.publication_date, 
-            p.user_id,
-            u.username, 
-            u.profile_picture,
+            p.post_id, p.post_title, p.post_description, p.publication_date, 
+            p.latitude, p.longitude, p.user_id,
+            u.username, u.profile_picture,
+            t.trip_title,
+            pl.place_name,
+            c.city_name,
             
-            -- Récupération des médias
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
-            
-            -- Compteurs
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
-
-            -- 👇 LE POINT CRUCIAL : Est-ce que JE l'ai liké ?
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :me) as is_liked
 
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
+        LEFT JOIN trips t ON p.trip_id = t.trip_id
+        LEFT JOIN places pl ON p.place_id = pl.place_id
+        LEFT JOIN cities c ON pl.city_id = c.city_id
         WHERE p.user_id = :me
         ORDER BY p.publication_date DESC
     """)
 
     res = db.execute(sql, {"me": current_user.user_id}).mappings().all()
-    
-    if not res:
-        return []
-    else:
-        return list(res)
+    return list(res)
     
 
 # ============================================================
-# 10. FEED DÉCOUVERTE
+# 10. FEED DÉCOUVERTE (CORRIGÉ AVEC VOYAGE ET LIEU)
 # ============================================================
 @router.get("/feed/discovery")
 def get_discovery_feed(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # AJOUT : is_liked
     sql = text("""
         SELECT 
-            p.post_id, 
-            p.post_title, 
-            p.post_description, 
-            p.publication_date, 
-            u.user_id, 
-            u.username, 
-            u.profile_picture,
+            p.post_id, p.post_title, p.post_description, p.publication_date, p.latitude,
+            u.user_id, u.username, u.profile_picture,
+            
+            t.trip_title,             -- On a besoin de ça pour l'affichage "Voyage"
+            pl.place_name,            -- On a besoin de ça pour le nom du lieu
+            c.city_name,              -- On a besoin de ça pour la ville
             
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
-            
-            -- Vérifie si l'utilisateur courant (:uid) a liké ce post
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :uid) as is_liked
 
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
+        LEFT JOIN trips t ON p.trip_id = t.trip_id          -- Jointure indispensable
+        LEFT JOIN places pl ON p.place_id = pl.place_id     -- Jointure indispensable
+        LEFT JOIN cities c ON pl.city_id = c.city_id        -- Jointure indispensable
         INNER JOIN (
             SELECT user_id, MAX(publication_date) as max_date
             FROM posts
@@ -569,32 +561,26 @@ def get_posts_by_user(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # AJOUT DE LA LIGNE 'is_liked' 👇
     sql = text("""
         SELECT 
-            p.post_id, 
-            p.post_title, 
-            p.post_description, 
-            p.publication_date, 
-            u.user_id, 
-            u.username, 
-            u.profile_picture,
+            p.post_id, p.post_title, p.post_description, p.publication_date, 
+            p.latitude, p.longitude, u.user_id, u.username, u.profile_picture,
+            t.trip_title,
+            pl.place_name,
+            c.city_name,
             
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
-            
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
-
-            -- 👇 C'est cette ligne qui manquait pour que le coeur reste rouge au reload !
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :current_id) as is_liked
 
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
+        LEFT JOIN trips t ON p.trip_id = t.trip_id
+        LEFT JOIN places pl ON p.place_id = pl.place_id
+        LEFT JOIN cities c ON pl.city_id = c.city_id
         WHERE p.user_id = :target_id
-        AND (
-            p.privacy = 'PUBLIC' 
-            OR p.user_id = :current_id
-        )
+        AND (p.privacy = 'PUBLIC' OR p.user_id = :current_id)
         ORDER BY p.publication_date DESC;
     """)
 

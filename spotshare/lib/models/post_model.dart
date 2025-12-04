@@ -9,8 +9,13 @@ class PostModel {
   final int comments;
   final DateTime date;
   
-  // NOUVEAU CHAMP
   final bool isLiked; 
+  
+  // Champs pour le contexte (Voyage / Lieu)
+  final String? tripName;
+  final String? placeName;
+  final String? cityName;
+  final double? latitude;
 
   PostModel({
     required this.id,
@@ -22,7 +27,11 @@ class PostModel {
     required this.likes,
     required this.comments,
     required this.date,
-    this.isLiked = false, // Valeur par défaut
+    this.isLiked = false,
+    this.tripName,
+    this.placeName,
+    this.cityName,
+    this.latitude,
   });
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -30,6 +39,26 @@ class PostModel {
     List<String> images = [];
     if (mediaString != null && mediaString.isNotEmpty) {
       images = mediaString.split(',');
+    }
+
+    // --- LOGIQUE IDENTIQUE À COMMENT_MODEL ---
+    DateTime parseDate(String? dateStr) {
+      if (dateStr == null) return DateTime.now();
+
+      // 1. Correction du format (remplacer espace par T si nécessaire)
+      String isoString = dateStr.replaceFirst(' ', 'T');
+
+      // 2. Si pas de timezone, on ajoute 'Z' pour dire que c'est du UTC
+      if (!isoString.endsWith('Z') && !isoString.contains('+')) {
+        isoString += 'Z';
+      }
+
+      // 3. On parse et on convertit en HEURE LOCALE (.toLocal())
+      // C'est ça qui corrige le décalage de 1h
+      final date = DateTime.tryParse(isoString);
+      if (date == null) return DateTime.now();
+      
+      return date.toLocal();
     }
 
     return PostModel(
@@ -41,12 +70,24 @@ class PostModel {
       caption: json['post_description'] ?? "",
       likes: json['likes_count'] ?? 0,
       comments: json['comments_count'] ?? 0,
-      date: json['publication_date'] != null 
-          ? DateTime.tryParse(json['publication_date'].toString()) ?? DateTime.now() 
-          : DateTime.now(),
       
-      // Conversion int (0 ou 1) du SQL vers bool Dart
+      // Utilisation de la fonction de parsing corrigée
+      date: parseDate(json['publication_date']?.toString()),
+      
       isLiked: (json['is_liked'] != null && json['is_liked'] > 0),
+      
+      // Récupération des infos de voyage et lieu
+      tripName: json['trip_title'], 
+      placeName: json['place_name'],
+      cityName: json['city_name'],
+      latitude: json['latitude'] != null ? double.tryParse(json['latitude'].toString()) : null,
     );
+  }
+  
+  // Helper pour l'affichage du lieu (sans "Lieu épinglé")
+  String? get displayLocation {
+    if (cityName != null && cityName!.isNotEmpty) return cityName;
+    if (placeName != null && placeName!.isNotEmpty) return placeName;
+    return null;
   }
 }

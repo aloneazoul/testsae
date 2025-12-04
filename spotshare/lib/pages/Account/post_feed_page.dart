@@ -84,15 +84,30 @@ class _PostFeedPageState extends State<PostFeedPage> {
     Navigator.pop(context, hasDataChanged);
   }
 
+  // --- FONCTION DE CORRECTION DE DATE (IDENTIQUE AU MODEL) ---
+  DateTime _parseDate(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return DateTime.now();
+
+    // 1. Correction du format
+    String isoString = dateStr.replaceFirst(' ', 'T');
+
+    // 2. Ajout du Z pour UTC
+    if (!isoString.endsWith('Z') && !isoString.contains('+')) {
+      isoString += 'Z';
+    }
+
+    // 3. Conversion UTC -> Local
+    return DateTime.tryParse(isoString)?.toLocal() ?? DateTime.now();
+  }
+
   @override
   Widget build(BuildContext context) {
     String pseudo = widget.userData['pseudo'] ?? 'Publications';
 
     return WillPopScope(
-      // Intercepte le bouton retour physique Android / Swipe iOS
       onWillPop: () async {
         _goBack();
-        return false; // On gère le pop manuellement
+        return false;
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -101,7 +116,7 @@ class _PostFeedPageState extends State<PostFeedPage> {
           iconTheme: const IconThemeData(color: Colors.white),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: _goBack, // Utilise notre fonction de retour
+            onPressed: _goBack,
           ),
           title: Text(pseudo, style: const TextStyle(color: Colors.white)),
         ),
@@ -132,42 +147,38 @@ class _PostFeedPageState extends State<PostFeedPage> {
 
                 if (imageUrls.isEmpty) return const SizedBox.shrink();
 
-                // Création du modèle
+                // Création du modèle avec la date corrigée
                 PostModel postModel = PostModel(
                   id: postId.toString(),
                   userId: postUserId,
-                  userName: widget.userData['pseudo'] ?? "Inconnu",
+                  userName: widget.userData['username'] ?? widget.userData['pseudo'] ?? "Inconnu",
                   imageUrls: imageUrls,
                   caption: postData['post_description'] ?? "",
                   likes: postData['likes_count'] ?? postData['nb_likes'] ?? 0,
-                  comments:
-                      postData['comments_count'] ??
-                      postData['nb_comments'] ??
-                      0,
-                  // C'est cette info qui sera corrigée grâce au Backend
-                  isLiked:
-                      (postData['is_liked'] != null &&
-                      postData['is_liked'] > 0),
-                  date:
-                      DateTime.tryParse(postData['created_at'] ?? "") ??
-                      DateTime.now(),
-                  profileImageUrl: widget.userData['img'] ?? "",
+                  comments: postData['comments_count'] ?? postData['nb_comments'] ?? 0,
+                  isLiked: (postData['is_liked'] != null && postData['is_liked'] > 0),
+                  
+                  // --- UTILISATION DE LA FONCTION DE DATE ICI ---
+                  date: _parseDate(postData['created_at']?.toString() ?? postData['publication_date']?.toString()),
+                  
+                  profileImageUrl: widget.userData['img'] ?? widget.userData['profile_picture'] ?? "",
+                  
+                  // Mapping des nouvelles infos (Voyage / Ville)
+                  tripName: postData['trip_title'],
+                  placeName: postData['place_name'],
+                  cityName: postData['city_name'],
+                  latitude: postData['latitude'] != null ? double.tryParse(postData['latitude'].toString()) : null,
                 );
 
                 return PostCard(
                   post: postModel,
                   isOwner: isOwner,
-
-                  // Callback quand on like
                   onLikeChanged: (bool liked, int count) {
-                    // On note que quelque chose a changé
                     hasDataChanged = true;
                   },
-
                   onDelete: () async {
                     final bool deleted = await _handleDeletePost(postModel.id);
                     if (deleted) {
-                      // Si suppression, on force le refresh direct
                       Navigator.pop(context, true);
                     }
                   },

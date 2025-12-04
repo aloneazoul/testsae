@@ -1,4 +1,5 @@
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:spotshare/models/post_model.dart';
 
 class Landmark {
   final int id;
@@ -7,6 +8,7 @@ class Landmark {
   final String owner;
   final Point coords;
   final List<String> images;
+  final PostModel post;
 
   Landmark({
     required this.id,
@@ -15,5 +17,6 @@ class Landmark {
     required this.owner,
     required this.coords,
     required this.images,
+    required this.post,
   });
 }

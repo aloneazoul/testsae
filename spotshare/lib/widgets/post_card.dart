@@ -4,7 +4,7 @@ import 'package:spotshare/models/comment_model.dart';
 import 'package:spotshare/pages/Account/profile_page.dart';
 import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/comment_service.dart';
-import 'package:spotshare/services/user_service.dart'; // <--- IMPORT AJOUTÉ
+import 'package:spotshare/services/user_service.dart';
 import 'package:spotshare/utils/constants.dart';
 
 class PostCard extends StatefulWidget {
@@ -201,11 +201,34 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     );
   }
 
+  // --- MÊME LOGIQUE QUE LES COMMENTAIRES ---
+  String _formatDate(DateTime date) {
+    // Calcul de la différence par rapport à maintenant
+    final diff = DateTime.now().difference(date);
+    
+    if (diff.inDays > 7) return "${date.day}-${date.month}";
+    if (diff.inDays >= 1) return "${diff.inDays}j";
+    if (diff.inHours >= 1) return "${diff.inHours}h";
+    if (diff.inMinutes >= 1) return "${diff.inMinutes}m";
+    return "À l'instant";
+  }
+
+  Widget _buildDot() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      width: 3,
+      height: 3,
+      decoration: BoxDecoration(
+        color: Colors.grey[600],
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double mainSize = widget.textSize;
     final double titleSize = widget.textSize + 4;
-    final double smallSize = widget.textSize - 1;
 
     final screenWidth = MediaQuery.of(context).size.width;
     double firstImageHeight = screenWidth;
@@ -215,6 +238,17 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
         screenWidth,
       );
     }
+
+    // Récupération sécurisée du lieu via le modèle (et sans fallback "Lieu épinglé")
+    String? locationText;
+    try {
+      locationText = (widget.post as dynamic).displayLocation;
+    } catch (_) {
+      // Si le getter n'existe pas encore dans votre version compilée
+      locationText = widget.post.cityName ?? widget.post.placeName;
+    }
+
+    final String timeString = _formatDate(widget.post.date);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -416,18 +450,54 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
           ),
         ),
 
-        // --- DESCRIPTION ---
+        // --- DESCRIPTION ET METADATA ---
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               buildDescription(),
-              const SizedBox(height: 4),
-              Text(
-                'Il y a 4h · Paris, France',
-                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+              
+              const SizedBox(height: 8),
+
+              // --- LIGNE D'INFORMATIONS (DATE • VOYAGE • LIEU) ---
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  // 1. Temps écoulé (formaté comme les commentaires)
+                  Text(
+                    timeString,
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
+
+                  // 2. Affichage Voyage (Si dispo)
+                  if (widget.post.tripName != null && widget.post.tripName!.isNotEmpty) ...[
+                    _buildDot(),
+                    const Icon(Icons.airplanemode_active, size: 14, color: dGreen),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.post.tripName!,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500
+                      ),
+                    ),
+                  ],
+
+                  // 3. Affichage Localisation (Si dispo)
+                  if (locationText != null && locationText.isNotEmpty) ...[
+                    _buildDot(),
+                    Icon(Icons.location_on, size: 14, color: Colors.grey[500]),
+                    const SizedBox(width: 2),
+                    Text(
+                      locationText,
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
+                  ],
+                ],
               ),
+              const SizedBox(height: 12), 
             ],
           ),
         ),
@@ -435,14 +505,14 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     );
   }
 
-  // --- MODAL COMMENTAIRES ---
+  // --- MODAL COMMENTAIRES (Identique) ---
   void _showCommentsModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Padding(
-        padding: MediaQuery.of(context).viewInsets, // Gère le clavier
+        padding: MediaQuery.of(context).viewInsets,
         child: _CommentsSheet(
           postId: widget.post.id,
           commentCount: commentCount,
@@ -461,7 +531,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
 }
 
 // ---------------------------------------------------------------------------
-// WIDGET INTERNE POUR LA FEUILLE DE COMMENTAIRES
+// FEUILLE DE COMMENTAIRES (CODE INCHANGÉ - ON LE GARDE TEL QUEL)
 // ---------------------------------------------------------------------------
 class _CommentsSheet extends StatefulWidget {
   final String postId;
@@ -486,23 +556,19 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   List<CommentModel> _comments = [];
   bool _isLoading = true;
   bool _isSending = false;
-
-  // Stocke l'avatar de l'utilisateur connecté (celui qui tape le commentaire)
   String? _myProfilePic;
 
   @override
   void initState() {
     super.initState();
     _fetchComments();
-    _loadCurrentUser(); // <--- On charge l'avatar de l'utilisateur courant
+    _loadCurrentUser(); 
   }
 
   Future<void> _loadCurrentUser() async {
-    // Appel au service pour récupérer "Mon Profil"
     final profile = await getMyProfile();
     if (profile != null && mounted) {
       setState(() {
-        // On essaie plusieurs clés car l'API peut varier (profile_picture, img, etc.)
         _myProfilePic = profile['profile_picture'] ?? profile['img'];
       });
     }
@@ -550,6 +616,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     super.dispose();
   }
 
+  // C'est cette fonction "modèle" que nous avons dupliquée dans le PostCard
   String _formatDate(DateTime date) {
     final diff = DateTime.now().difference(date);
     if (diff.inDays > 7) return "${date.day}-${date.month}";
@@ -574,7 +641,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       ),
       child: Column(
         children: [
-          // --- HEADER MODAL ---
           Container(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Column(
@@ -601,7 +667,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           ),
           const Divider(height: 1, color: Color(0xFF333333)),
 
-          // --- LISTE DES COMMENTAIRES ---
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: dGreen))
@@ -620,123 +685,80 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     itemCount: _comments.length,
                     itemBuilder: (context, index) {
                       final comment = _comments[index];
-                      bool liked = false;
-                      int likes = 0;
-                      return StatefulBuilder(
-                        builder: (context, setSB) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundImage:
-                                      comment.profilePicture.isNotEmpty
-                                      ? NetworkImage(comment.profilePicture)
-                                      : null,
-                                  backgroundColor: Colors.grey[800],
-                                  child: comment.profilePicture.isEmpty
-                                      ? const Icon(
-                                          Icons.person,
-                                          size: 20,
-                                          color: Colors.white,
-                                        )
-                                      : null,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        comment.username,
-                                        style: const TextStyle(
-                                          color: userGrey,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        comment.content,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14,
-                                          height: 1.3,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            _formatDate(comment.createdAt),
-                                            style: const TextStyle(
-                                              color: textGrey,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          const Text(
-                                            "Répondre",
-                                            style: TextStyle(
-                                              color: textGrey,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                GestureDetector(
-                                  onTap: () {
-                                    setSB(() {
-                                      liked = !liked;
-                                      likes += liked ? 1 : -1;
-                                    });
-                                  },
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        liked
-                                            ? Icons.favorite
-                                            : Icons.favorite_border,
-                                        color: liked
-                                            ? Colors.red
-                                            : Colors.grey[600],
-                                        size: 20,
-                                      ),
-                                      if (likes > 0)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 2,
-                                          ),
-                                          child: Text(
-                                            "$likes",
-                                            style: TextStyle(
-                                              color: Colors.grey[600],
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundImage:
+                                  comment.profilePicture.isNotEmpty
+                                  ? NetworkImage(comment.profilePicture)
+                                  : null,
+                              backgroundColor: Colors.grey[800],
+                              child: comment.profilePicture.isEmpty
+                                  ? const Icon(
+                                      Icons.person,
+                                      size: 20,
+                                      color: Colors.white,
+                                    )
+                                  : null,
                             ),
-                          );
-                        },
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    comment.username,
+                                    style: const TextStyle(
+                                      color: userGrey,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    comment.content,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        _formatDate(comment.createdAt),
+                                        style: const TextStyle(
+                                          color: textGrey,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      const Text(
+                                        "Répondre",
+                                        style: TextStyle(
+                                          color: textGrey,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     },
                   ),
           ),
 
-          // --- ZONE D'ÉCRITURE ---
           SafeArea(
             top: false,
             child: Container(
@@ -754,7 +776,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
               ),
               child: Row(
                 children: [
-                  // PHOTO DE PROFIL CHARGÉE LOCALEMENT
                   CircleAvatar(
                     radius: 16,
                     backgroundImage:
@@ -772,7 +793,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                   ),
                   const SizedBox(width: 12),
 
-                  // Champ texte
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -802,7 +822,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     ),
                   ),
 
-                  // Bouton Envoyer
                   const SizedBox(width: 12),
                   GestureDetector(
                     onTap: _isSending ? null : _sendComment,
