@@ -11,7 +11,9 @@ class ApiClient {
   ApiClient._internal();
 
   String get baseUrl {
-    return Platform.isAndroid ? "http://10.0.2.2:8001" : "http://127.0.0.1:8001";
+    return Platform.isAndroid
+        ? "http://10.0.2.2:8001"
+        : "http://127.0.0.1:8001";
   }
 
   // Méthode pour obtenir les headers avec le token automatiquement
@@ -27,7 +29,7 @@ class ApiClient {
   Future<dynamic> get(String endpoint) async {
     final url = Uri.parse("$baseUrl$endpoint");
     final headers = await _getHeaders();
-    
+
     print("🔵 GET: $url");
     final response = await http.get(url, headers: headers);
     return _processResponse(response);
@@ -40,9 +42,9 @@ class ApiClient {
 
     print("🛫 POST: $url \n📦 Data: $data");
     final response = await http.post(
-      url, 
-      headers: headers, 
-      body: jsonEncode(data)
+      url,
+      headers: headers,
+      body: jsonEncode(data),
     );
     return _processResponse(response);
   }
@@ -62,18 +64,15 @@ class ApiClient {
     }
   }
 
-
-// Nouvelle méthode pour envoyer des données "Form Data" (comme un formulaire HTML)
+  // Nouvelle méthode pour envoyer des données "Form Data" (comme un formulaire HTML)
   Future<dynamic> postForm(String endpoint, Map<String, String> data) async {
     final url = Uri.parse("$baseUrl$endpoint");
-    
+
     // On récupère le token
     final token = await StorageService.getToken();
-    
+
     // On ne met PAS 'Content-Type': 'application/json' ici !
-    final headers = {
-      if (token != null) "Authorization": "Bearer $token",
-    };
+    final headers = {if (token != null) "Authorization": "Bearer $token"};
 
     print("🛫 POST FORM: $url \n📦 Data: $data");
 
@@ -92,10 +91,7 @@ class ApiClient {
 
     print("🔴 DELETE: $url");
 
-    final response = await http.delete(
-      url,
-      headers: headers,
-    );
+    final response = await http.delete(url, headers: headers);
 
     return _processResponse(response);
   }
@@ -114,10 +110,7 @@ class ApiClient {
 
     // Préparation du fichier
     // Note: Le champ 'file' correspond au nom du paramètre dans votre API FastAPI : file: UploadFile = File(...)
-    var multipartFile = await http.MultipartFile.fromPath(
-      'file', 
-      file.path,
-    );
+    var multipartFile = await http.MultipartFile.fromPath('file', file.path);
 
     request.files.add(multipartFile);
 

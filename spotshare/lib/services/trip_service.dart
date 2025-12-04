@@ -8,16 +8,19 @@ class TripService {
   final ApiClient _client = ApiClient();
 
   // CRÉATION DE VOYAGE (Finalisée avec gestion de fichier)
-  Future<bool> createTrip(Map<String, dynamic> tripData, File? bannerFile) async {
-    final token = await StorageService.getToken(); 
+  Future<bool> createTrip(
+    Map<String, dynamic> tripData,
+    File? bannerFile,
+  ) async {
+    final token = await StorageService.getToken();
     if (token == null) {
-        print("🔴 Erreur: Pas de token");
-        return false;
+      print("🔴 Erreur: Pas de token");
+      return false;
     }
 
     // Le format MultipartRequest gère l'envoi des champs texte ET des fichiers.
     final url = Uri.parse("${_client.baseUrl}/trips");
-    
+
     try {
       final request = http.MultipartRequest("POST", url);
 
@@ -27,8 +30,9 @@ class TripService {
       // 1. Ajout des champs texte (Form Data)
       // Mappage des clés Flutter aux arguments FastAPI
       request.fields['trip_title'] = tripData["trip_title"] ?? "";
-      request.fields['is_public'] = (tripData["is_public_flag"] == "Y").toString(); 
-      
+      request.fields['is_public'] = (tripData["is_public_flag"] == "Y")
+          .toString();
+
       // Champs optionnels
       if (tripData["trip_description"] != null) {
         request.fields['trip_description'] = tripData["trip_description"]!;
@@ -39,7 +43,7 @@ class TripService {
       if (tripData["end_date"] != null) {
         request.fields['end_date'] = tripData["end_date"]!;
       }
-      
+
       // 2. Ajout du fichier de bannière (bannerFile)
       // On utilise 'banner_file' comme nom de champ, qui doit correspondre à ce que FastAPI attend.
       if (bannerFile != null) {
@@ -53,7 +57,8 @@ class TripService {
 
       print("📡 Reponse Serveur: $responseBody");
 
-      if (streamedResponse.statusCode == 200 || streamedResponse.statusCode == 201) {
+      if (streamedResponse.statusCode == 200 ||
+          streamedResponse.statusCode == 201) {
         print("✅ Voyage créé avec fichier");
         return true;
       } else {
@@ -70,12 +75,12 @@ class TripService {
     try {
       // On appelle la route GET définie dans ton backend Python (@router.get("/trips/my"))
       final response = await _client.get("/trips/my");
-      
+
       // Si la réponse est null ou n'est pas une liste, on renvoie une liste vide
       if (response == null || response is! List) {
         return [];
       }
-      
+
       return response;
     } catch (e) {
       print("Erreur lors de la récupération des voyages: $e");
@@ -87,7 +92,7 @@ class TripService {
   Future<bool> deleteTrip(int tripId) async {
     try {
       // DELETE /trips/{trip_id}
-      await _client.delete("/trips/$tripId"); 
+      await _client.delete("/trips/$tripId");
       // Note: Il faudra ajouter la méthode delete() dans ApiClient si elle n'existe pas,
       // ou utiliser _client.deleteTrip si tu l'as nommée ainsi.
       // Si tu n'as pas de méthode delete générique, dis-le moi, mais voici le standard :

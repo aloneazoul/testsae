@@ -1,26 +1,18 @@
 import 'dart:async';
 import 'dart:math';
-
+import 'package:spotshare/models/landmark.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:spotshare/services/post_service.dart';
+import 'package:spotshare/services/trip_service.dart';
 import 'dart:ui' as ui;
 
-class Landmark {
-  final String name;
-  final String image;
-  final String owner;
-  final Point coords;
-
-  Landmark({
-    required this.name,
-    required this.image,
-    required this.owner,
-    required this.coords,
-  });
-}
+import 'package:spotshare/services/user_service.dart';
 
 class MapPage extends StatefulWidget {
-  const MapPage({super.key});
+  const MapPage({super.key, this.data = 1, this.trip = null});
+  final int data;
+  final dynamic trip;
 
   @override
   State<MapPage> createState() => _DarkMapboxWidgetState();
@@ -30,47 +22,216 @@ class _DarkMapboxWidgetState extends State<MapPage> {
   late MapboxMap _mapboxMap;
   bool _mapReady = false;
 
-  final List<Landmark> _landmarks = [
-    Landmark(
-      name: "Tour Eiffel",
-      image: "assets/images/tour_eiffel.jpg",
-      owner: "Alexis",
-      coords: Point(coordinates: Position(2.2945, 48.8584)),
-    ),
-    Landmark(
-      name: "Uluru (Ayers Rock)",
-      image: "assets/images/uluru.jpg",
-      owner: "Alone",
-      coords: Point(coordinates: Position(131.0369, -25.3444)),
-    ),
-    Landmark(
-      name: "Statue de la Liberté",
-      image: "assets/images/liberty.jpeg",
-      owner: "Clem",
-      coords: Point(coordinates: Position(-74.0445, 40.6892)),
-    ),
-    Landmark(
-      name: "Machu Picchu",
-      image: "assets/images/machu-picchu.jpeg",
-      owner: "Antoine",
-      coords: Point(coordinates: Position(-72.5450, -13.1631)),
-    ),
-    Landmark(
-      name: "Grande Muraille de Chine",
-      image: "assets/images/muraille_chine.webp",
-      owner: "Alone",
-      coords: Point(coordinates: Position(116.5704, 40.4319)),
-    ),
-  ];
+  final _landmarks = [];
 
   final Map<String, Offset> _positions = {};
 
   @override
   void initState() {
     super.initState();
+    _initMap();
+    loadLandmarks();
+  }
+
+  void _initMap() {
     const ACCESS_TOKEN =
         'pk.eyJ1IjoiYWxleGlzZHoiLCJhIjoiY21nNmtrcWc4MGUxaTJoczI1cm5jbGZwdCJ9.x10xKnS4jeJGgs3EuWbdUg';
+
     MapboxOptions.setAccessToken(ACCESS_TOKEN);
+  }
+
+  Future<void> loadLandmarks() async {
+    // 1️⃣ Charger les landmarks selon le type de data
+    if (widget.data == 1) {
+      _loadFeedLandmarks();
+    } else if (widget.data == 2 && widget.trip != null) {
+      await _loadTripLandmarks(widget.trip);
+    }
+
+    if (!mounted) return;
+
+    // 2️⃣ Mettre à jour l'état pour redessiner la map
+    setState(() {});
+
+    // 3️⃣ Si la map est prête, centrer sur le premier landmark et mettre à jour les positions
+    if (_mapReady && _landmarks.isNotEmpty) {
+      await _mapboxMap.setCamera(
+        CameraOptions(
+          center: _landmarks.first.coords,
+          zoom: 1.5, // zoom initial
+        ),
+      );
+      await _updateAllMarkerPositions();
+    }
+  }
+
+  Future<void> _onMapCreated(MapboxMap mapboxMap) async {
+    _mapboxMap = mapboxMap;
+    setState(() => _mapReady = true);
+
+    // 1️⃣ Centrer sur le premier landmark si déjà chargé
+    if (_landmarks.isNotEmpty) {
+      await _mapboxMap.setCamera(
+        CameraOptions(center: _landmarks.first.coords, zoom: 1.5),
+      );
+    }
+
+    // 2️⃣ Mettre à jour toutes les positions des markers
+    await _updateAllMarkerPositions();
+
+    // 3️⃣ Désactiver rotation et pitch
+    await _mapboxMap.gestures.updateSettings(
+      GesturesSettings(rotateEnabled: false, pitchEnabled: false),
+    );
+  }
+
+  void _loadDemoLandmarks() {
+    _landmarks.addAll([
+      Landmark(
+        id: 1,
+        name: "Tour Eiffel",
+        image: "assets/images/tour_eiffel.jpg",
+        owner: "Alexis",
+        coords: Point(coordinates: Position(2.2945, 48.8584)),
+        images: ["assets/images/tour_eiffel.jpg"],
+      ),
+      Landmark(
+        id: 2,
+        name: "Uluru (Ayers Rock)",
+        image: "assets/images/uluru.jpg",
+        owner: "Alone",
+        coords: Point(coordinates: Position(131.0369, -25.3444)),
+        images: ["assets/images/uluru.jpg"],
+      ),
+      Landmark(
+        id: 3,
+        name: "Statue de la Liberté",
+        image: "assets/images/liberty.jpeg",
+        owner: "Clem",
+        coords: Point(coordinates: Position(-74.0445, 40.6892)),
+        images: ["assets/images/liberty.jpeg"],
+      ),
+      Landmark(
+        id: 4,
+        name: "Machu Picchu",
+        image: "assets/images/machu-picchu.jpeg",
+        owner: "Antoine",
+        coords: Point(coordinates: Position(-72.5450, -13.1631)),
+        images: ["assets/images/machu-picchu.jpeg"],
+      ),
+      Landmark(
+        id: 5,
+        name: "Grande Muraille de Chine",
+        image: "assets/images/muraille_chine.webp",
+        owner: "Alone",
+        coords: Point(coordinates: Position(116.5704, 40.4319)),
+        images: ["assets/images/muraille_chine.webp"],
+      ),
+    ]);
+  }
+
+  Future<void> _loadTripLandmarks(dynamic trip) async {
+    final user = await getMyProfile();
+    final tripService = TripService();
+    final postService = PostService();
+
+    // trip doit être un Map, sinon ça crash
+    if (trip == null || trip["trip_id"] == null) {
+      print("❌ trip NULL ou mauvais format");
+      return;
+    }
+
+    final posts = await tripService.getTripPosts(trip["trip_id"]);
+    print(posts);
+
+    for (final post in posts) {
+      // 🔹 Récupération de la première image
+      final media = await postService.getFirstMediaTripPosts(post["post_id"]);
+      final mediaUrl = media?["media_url"] ?? "";
+
+      final List<dynamic> medias = await postService.getMediaTripPosts(
+        post["post_id"],
+      );
+      final List<String> mediaUrls = medias
+          .map((m) => m["media_url"] as String)
+          .toList();
+
+      // 🔹 Sécurisation du titre
+      final title = post["post_title"] ?? "Sans titre";
+
+      // 🔹 Sécurisation des coordonnées
+      final lon = post["longitude"];
+      final lat = post["latitude"];
+
+      if (lon == null || lat == null) {
+        print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
+        continue;
+      }
+
+      _landmarks.add(
+        Landmark(
+          id: post["post_id"],
+          name: title,
+          image: mediaUrl,
+          owner: user?["pseudo"] ?? "Utilisateur",
+          coords: Point(
+            coordinates: Position(
+              lon is double ? lon : double.tryParse(lon.toString()) ?? 0,
+              lat is double ? lat : double.tryParse(lat.toString()) ?? 0,
+            ),
+          ),
+          images: mediaUrls,
+        ),
+      );
+    }
+  }
+
+  Future<void> _loadFeedLandmarks() async {
+    final PostService _postService = PostService();
+    final user = await getMyProfile();
+
+    final posts = await _postService.getDiscoveryFeed();
+
+    for (final post in posts) {
+      // 🔹 Récupération de la première image
+      final media = await _postService.getFirstMediaTripPosts(post["post_id"]);
+      final mediaUrl = media?["media_url"] ?? "";
+
+      final List<dynamic> medias = await _postService.getMediaTripPosts(
+        post["post_id"],
+      );
+      final List<String> mediaUrls = medias
+          .map((m) => m["media_url"] as String)
+          .toList();
+
+      // 🔹 Sécurisation du titre
+      final title = post["post_title"] ?? "Sans titre";
+
+      // 🔹 Sécurisation des coordonnées
+      final lon = post["longitude"];
+      final lat = post["latitude"];
+
+      if (lon == null || lat == null) {
+        print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
+        continue;
+      }
+
+      _landmarks.add(
+        Landmark(
+          id: post["post_id"],
+          name: title,
+          image: mediaUrl,
+          owner: user?["pseudo"] ?? "Utilisateur",
+          coords: Point(
+            coordinates: Position(
+              lon is double ? lon : double.tryParse(lon.toString()) ?? 0,
+              lat is double ? lat : double.tryParse(lat.toString()) ?? 0,
+            ),
+          ),
+          images: mediaUrls,
+        ),
+      );
+    }
   }
 
   @override
@@ -81,7 +242,10 @@ class _DarkMapboxWidgetState extends State<MapPage> {
           MapWidget(
             styleUri: "mapbox://styles/alexisdz/cmgi1acn6001701s3b4y93lse",
             cameraOptions: CameraOptions(
-              center: _landmarks.first.coords,
+              center: _landmarks.isEmpty
+                  ? Point(coordinates: Position(0, 0))
+                  : _landmarks.first.coords,
+
               zoom: 1.5,
             ),
             onMapCreated: _onMapCreated,
@@ -89,8 +253,17 @@ class _DarkMapboxWidgetState extends State<MapPage> {
               if (_mapReady) await _updateAllMarkerPositions();
             },
           ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: FlightPathPainter(_positions, _landmarks),
+              ),
+            ),
+          ),
           ..._positions.entries.map((entry) {
-            final lm = _landmarks.firstWhere((l) => l.name == entry.key);
+            final lm = _landmarks.firstWhere(
+              (l) => l.id.toString() == entry.key,
+            );
             final pos = entry.value;
 
             return Positioned(
@@ -107,15 +280,6 @@ class _DarkMapboxWidgetState extends State<MapPage> {
     );
   }
 
-  Future<void> _onMapCreated(MapboxMap mapboxMap) async {
-    _mapboxMap = mapboxMap;
-    setState(() => _mapReady = true);
-    await _updateAllMarkerPositions();
-    await _mapboxMap.gestures.updateSettings(
-      GesturesSettings(rotateEnabled: false, pitchEnabled: false),
-    );
-  }
-
   bool _isVisibleOnGlobe(Position cam, Position target) {
     final lat1 = cam.lat * pi / 180;
     final lon1 = cam.lng * pi / 180;
@@ -129,7 +293,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
 
   Future<void> _updateAllMarkerPositions() async {
     final camera = await _mapboxMap.getCameraState();
-    final camPos = camera.center!.coordinates;
+    final camPos = camera.center.coordinates;
     final newPositions = <String, Offset>{};
 
     for (final lm in _landmarks) {
@@ -145,7 +309,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
             screenCoords.y > MediaQuery.of(context).size.height)
           continue;
 
-        newPositions[lm.name] = Offset(screenCoords.x, screenCoords.y);
+        newPositions[lm.id.toString()] = Offset(screenCoords.x, screenCoords.y);
       } catch (_) {}
     }
 
@@ -224,18 +388,29 @@ class _LandmarkPopupState extends State<_LandmarkPopup> {
           SizedBox(
             height: MediaQuery.of(context).size.height * 0.22,
             child: PageView.builder(
-              itemCount: 5,
+              itemCount: widget.landmark.images.length,
               controller: PageController(viewportFraction: 0.9),
               itemBuilder: (context, index) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4.0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: Image.asset(
-                      widget.landmark.image,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                    ),
+                    child: (widget.landmark.images[index].startsWith('http')
+                        ? Image.network(
+                            widget.landmark.images[index],
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  color: Colors.grey[300],
+                                  child: Icon(Icons.broken_image),
+                                ),
+                          )
+                        : Image.asset(
+                            widget.landmark.images[index],
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          )),
                   ),
                 );
               },
@@ -517,13 +692,27 @@ class _MapMarkerWidget extends StatelessWidget {
                     top: Radius.circular(12),
                     bottom: Radius.circular(12),
                   ),
-                  child: Image.asset(
-                    landmark.image,
-                    fit: BoxFit.cover,
-                    height: 80,
-                    width: 120,
-                  ),
+                  child: (landmark.image.startsWith('http')
+                      ? Image.network(
+                          landmark.image,
+                          fit: BoxFit.cover,
+                          height: 80,
+                          width: 120,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey,
+                            height: 80,
+                            width: 120,
+                            child: const Icon(Icons.broken_image),
+                          ),
+                        )
+                      : Image.asset(
+                          landmark.image,
+                          fit: BoxFit.cover,
+                          height: 80,
+                          width: 120,
+                        )),
                 ),
+
                 Padding(
                   padding: const EdgeInsets.all(6.0),
                   child: Text(
@@ -560,4 +749,84 @@ class _TrianglePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class FlightPathPainter extends CustomPainter {
+  final Map<String, Offset> positions; // clés : lm.id.toString()
+  final List landmarks; // list of Landmark (pour l'ordre)
+  final Paint linePaint;
+  final Paint shadowPaint;
+  final Paint planePaint;
+
+  FlightPathPainter(this.positions, this.landmarks)
+    : linePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+      shadowPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.black26,
+      planePaint = Paint()..style = PaintingStyle.fill;
+
+  @override
+  void paint(Canvas canvas, ui.Size size) {
+    final pts = <Offset>[];
+    for (final lm in landmarks) {
+      final key = lm.id.toString();
+      if (positions.containsKey(key)) pts.add(positions[key]!);
+    }
+
+    if (pts.length < 2) return;
+
+    // Draw curved segments between consecutive points
+    for (int i = 0; i < pts.length - 1; i++) {
+      final p0 = pts[i];
+      final p1 = pts[i + 1];
+
+      // create a control point for a gentle arc (raise perpendicular)
+      final mid = Offset((p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
+      final dx = p1.dx - p0.dx;
+      final dy = p1.dy - p0.dy;
+      // perpendicular vector normalized
+      final perp = Offset(-dy, dx);
+      final dist = sqrt(dx * dx + dy * dy);
+      final factor = (dist / 4).clamp(20.0, 120.0); // adjust arc height
+      final normPerp = perp / (dist == 0 ? 1 : dist);
+      final control = mid + normPerp * factor;
+
+      final path = Path()
+        ..moveTo(p0.dx, p0.dy)
+        ..quadraticBezierTo(control.dx, control.dy, p1.dx, p1.dy);
+
+      // shadow
+      canvas.drawPath(path, shadowPaint..color = Colors.black26);
+      // main line (gradient-like with white center)
+      canvas.drawPath(path, linePaint..color = Colors.white);
+    }
+
+    // Draw small plane glyphs on each segment midpoint oriented along angle
+    for (int i = 0; i < pts.length - 1; i++) {
+      final p0 = pts[i];
+      final p1 = pts[i + 1];
+
+      // segment midpoint (we'll project along the bezier curve roughly by midpoint)
+      final mx = (p0.dx + p1.dx) / 2;
+      final my = (p0.dy + p1.dy) / 2;
+      final angle = atan2(p1.dy - p0.dy, p1.dx - p0.dx);
+
+      canvas.save();
+      canvas.translate(mx, my);
+      canvas.rotate(angle);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant FlightPathPainter oldDelegate) {
+    // repaint when positions or landmark order changes
+    return oldDelegate.positions != positions ||
+        oldDelegate.landmarks != landmarks;
+  }
 }

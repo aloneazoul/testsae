@@ -34,13 +34,12 @@ Future<Map<String, dynamic>?> getMyProfile() async {
   return null;
 }
 
-// ==================================================
-// 2. RECHERCHER DES UTILISATEURS
-// ==================================================
+// Recherche d'utilisateurs (si query est vide "", renvoie la liste par défaut)
 Future<List<dynamic>> searchUsers(String query) async {
   final token = await StorageService.getToken();
+
   // On passe le paramètre query dans l'URL
-  final url = "${apiClient.baseUrl}/search/users?query=$query"; 
+  final url = "${apiClient.baseUrl}/search/users?query=$query";
 
   try {
     print("🔵 Search Users : $url");
@@ -68,7 +67,7 @@ Future<List<dynamic>> searchUsers(String query) async {
 // ==================================================
 Future<Map<String, dynamic>?> getUserById(String userId) async {
   final token = await StorageService.getToken();
-  final url = "${apiClient.baseUrl}/users/$userId"; 
+  final url = "${apiClient.baseUrl}/users/$userId";
 
   try {
     final response = await http.get(
@@ -94,14 +93,12 @@ Future<Map<String, dynamic>?> getUserById(String userId) async {
 Future<bool> followUser(String targetUserId) async {
   final token = await StorageService.getToken();
   // CORRECTION : /follow/ au lieu de /followers/
-  final url = "${apiClient.baseUrl}/follow/$targetUserId"; 
+  final url = "${apiClient.baseUrl}/follow/$targetUserId";
 
   try {
     final response = await http.post(
       Uri.parse(url),
-      headers: {
-        "Authorization": "Bearer $token",
-      },
+      headers: {"Authorization": "Bearer $token"},
     );
     // 200 = succès, 400 = déjà suivi ou erreur
     return response.statusCode == 200 || response.statusCode == 201;
@@ -117,14 +114,12 @@ Future<bool> followUser(String targetUserId) async {
 Future<bool> unfollowUser(String targetUserId) async {
   final token = await StorageService.getToken();
   // CORRECTION : /follow/ au lieu de /followers/
-  final url = "${apiClient.baseUrl}/follow/$targetUserId"; 
+  final url = "${apiClient.baseUrl}/follow/$targetUserId";
 
   try {
     final response = await http.delete(
       Uri.parse(url),
-      headers: {
-        "Authorization": "Bearer $token",
-      },
+      headers: {"Authorization": "Bearer $token"},
     );
     return response.statusCode == 200;
   } catch (e) {

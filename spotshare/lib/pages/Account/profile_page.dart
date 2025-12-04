@@ -7,18 +7,19 @@ import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
 import 'package:spotshare/pages/Account/post_feed_page.dart';
 import 'package:spotshare/utils/constants.dart';
 import 'login_page.dart';
+import 'package:spotshare/pages/Account/trip_map_overlay.dart';
 
-// --- NOUVEAUX IMPORTS POUR LES BOUTONS ---
+// --- IMPORTS POUR LE CHAT ---
 import 'package:spotshare/pages/Chat/chat_page.dart';
 import 'package:spotshare/models/conversation.dart';
 
-// Import des nouveaux widgets réutilisables
+// Import des widgets réutilisables
 import 'package:spotshare/widgets/post_grid_item.dart';
 import 'package:spotshare/widgets/trip_card_item.dart';
 import 'package:spotshare/widgets/sliver_header_delegate.dart';
 
 class ProfilePage extends StatefulWidget {
-  final String? userId; // <--- NOUVEAU : ID optionnel pour le mode "Visiteur"
+  final String? userId; // ID optionnel pour le mode "Visiteur"
 
   const ProfilePage({super.key, this.userId});
 
@@ -34,8 +35,8 @@ class _ProfilePageState extends State<ProfilePage>
   List<dynamic> _myTrips = [];
 
   bool _loading = true;
-  bool _isFollowing = false; // <--- ETAT DU FOLLOW
-  bool _followsMe = false;   // <--- NOUVEAU : Il me suit ?
+  bool _isFollowing = false; 
+  bool _followsMe = false;   
   late TabController _tabController;
 
   List<dynamic> _myPosts = [];
@@ -58,7 +59,6 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _loadAllData() async {
-    // <--- MODIFICATION : Choix des méthodes selon le profil
     Future<Map<String, dynamic>?> profileFuture;
     Future<List<dynamic>> tripsFuture;
     Future<List<dynamic>> postsFuture;
@@ -72,7 +72,6 @@ class _ProfilePageState extends State<ProfilePage>
       tripsFuture = _tripService.getTripsByUser(widget.userId!);
       postsFuture = _postService.getPostsByUser(widget.userId!);
     }
-    // ----------------------------------------------------
 
     final results = await Future.wait([
       profileFuture,
@@ -86,7 +85,7 @@ class _ProfilePageState extends State<ProfilePage>
         _myTrips = results[1] as List<dynamic>;
         _myPosts = results[2] as List<dynamic>; 
         
-        // <--- RECUPERATION ETATS DE RELATION
+        // Récupération des états de relation (Follow)
         if (_userData != null) {
           if (_userData!.containsKey('is_following')) {
             _isFollowing = _userData!['is_following'] == true;
@@ -94,7 +93,6 @@ class _ProfilePageState extends State<ProfilePage>
             _isFollowing = false;
           }
 
-          // Vérification si l'autre me suit (pour le bouton "Suivre en retour")
           if (_userData!.containsKey('follows_me')) {
             _followsMe = _userData!['follows_me'] == true;
           } else {
@@ -107,7 +105,7 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  // <--- ACTION : SUIVRE / NE PLUS SUIVRE
+  // --- ACTION : SUIVRE / NE PLUS SUIVRE ---
   Future<void> _toggleFollow() async {
     if (widget.userId == null) return;
 
@@ -130,14 +128,16 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  // <--- ACTION : OUVRIR LE CHAT
+  // --- ACTION : OUVRIR LE CHAT (Version Corrigée) ---
   void _navigateToChat() {
-    if (_userData == null) return;
+    if (_userData == null || widget.userId == null) return;
 
-    final fakeConv = Conversation(
-      id: "temp_${widget.userId}", 
+    // On passe l'ID utilisateur directement comme ID de conversation
+    // On met '' pour l'avatarUrl si null pour éviter le crash (géré par le CircleAvatar plus loin)
+    final conversation = Conversation(
+      id: widget.userId!, 
       name: _userData!['pseudo'] ?? "User",
-      avatarUrl: _userData!['img'] ?? 'https://picsum.photos/200',
+      avatarUrl: _userData!['img'] ?? '', 
       messages: [],
     );
 
@@ -145,11 +145,62 @@ class _ProfilePageState extends State<ProfilePage>
       context,
       MaterialPageRoute(
         builder: (_) => ChatPage(
-          conversation: fakeConv,
-          onSend: (convId, text) {
-            print("Envoi message à ${widget.userId}: $text");
+          conversation: conversation,
+          onSend: (targetId, text) {
+            // Callback optionnel
           },
         ),
+      ),
+    );
+  }
+
+  // --- ACTION : OUVRIR LA CARTE DU VOYAGE (Overlay) ---
+  void _openTripOverlay(dynamic trip) {
+    // Essaie d'extraire un centre depuis le trip
+    double defaultLng = 2.2945, defaultLat = 48.8584; // Tour Eiffel par défaut
+    double lng = defaultLng;
+    double lat = defaultLat;
+
+    try {
+      if (trip == null) {
+        // keep defaults
+      } else if (trip['coords'] is Map) {
+        final c = trip['coords'];
+        lng = (c['lng'] ?? c['lon'] ?? c['longitude'] ?? c['0'] ?? lng).toDouble();
+        lat = (c['lat'] ?? c['latitude'] ?? c['1'] ?? lat).toDouble();
+      } else if (trip['center'] is List && trip['center'].length >= 2) {
+        lng = (trip['center'][0] as num).toDouble();
+        lat = (trip['center'][1] as num).toDouble();
+      } else if (trip['lat'] != null && trip['lng'] != null) {
+        lng = (trip['lng'] as num).toDouble();
+        lat = (trip['lat'] as num).toDouble();
+      } else if (trip['location'] is Map) {
+        final loc = trip['location'];
+        lng = (loc['lng'] ?? loc['lon'] ?? lng).toDouble();
+        lat = (loc['lat'] ?? loc['latitude'] ?? lat).toDouble();
+      }
+    } catch (_) {
+      lng = defaultLng;
+      lat = defaultLat;
+    }
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false, // important: laisse voir le dessous
+        barrierDismissible: true,
+        pageBuilder: (context, animation, secondaryAnimation) {
+          final String myId = _userData!['id']?.toString() ?? _userData!['user_id']?.toString() ?? "0";
+          return TripMapOverlay(
+            trip: trip,
+            onClose: () => Navigator.of(context).pop(),
+            userData: _userData!,
+            currentLoggedUserId: myId,
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final tween = Tween(begin: const Offset(0, 1), end: Offset.zero).chain(CurveTween(curve: Curves.easeOut));
+          return SlideTransition(position: animation.drive(tween), child: child);
+        },
       ),
     );
   }
@@ -166,7 +217,7 @@ class _ProfilePageState extends State<ProfilePage>
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator(color: Colors.white)));
     }
 
     if (_userData == null) return _buildErrorState();
@@ -179,28 +230,26 @@ class _ProfilePageState extends State<ProfilePage>
     String nbAbonnes = (_userData!['followers_count'] ?? 0).toString(); 
     String nbSuivis = (_userData!['following_count'] ?? 0).toString();
 
-    // --- CALCUL DU TEXTE DU BOUTON ---
     String followButtonText = "Suivre";
     if (_isFollowing) {
       followButtonText = "Ne plus suivre";
     } else if (_followsMe) {
       followButtonText = "Suivre en retour";
     }
-    // ---------------------------------
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.black, // ⚫️ Fond TikTok
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) {
           return [
             SliverAppBar(
               backgroundColor: Colors.black,
-              title: Text(pseudo),
+              title: Text(pseudo, style: const TextStyle(color: Colors.white)),
               pinned: true,
               floating: true,
               forceElevated: innerBoxIsScrolled,
+              iconTheme: const IconThemeData(color: Colors.white),
               actions: [
-                // <--- MODIFICATION : Déconnexion seulement si c'est mon profil
                 if (isMyProfile)
                   IconButton(
                     icon: const Icon(Icons.exit_to_app, color: Colors.red),
@@ -218,16 +267,12 @@ class _ProfilePageState extends State<ProfilePage>
                       children: [
                         CircleAvatar(
                           radius: 40,
-                          backgroundColor: Colors.grey[800],
+                          backgroundColor: Colors.grey[800], // ⚫️ Style TikTok
                           backgroundImage: (imgUrl != null && imgUrl.isNotEmpty)
                               ? NetworkImage(imgUrl)
                               : null,
                           child: (imgUrl == null || imgUrl.isEmpty)
-                              ? const Icon(
-                                  Icons.person,
-                                  size: 40,
-                                  color: Colors.white54,
-                                )
+                              ? const Icon(Icons.person, size: 40, color: Colors.white54)
                               : null,
                         ),
                         const SizedBox(width: 20),
@@ -262,31 +307,27 @@ class _ProfilePageState extends State<ProfilePage>
                       ),
                     const SizedBox(height: 16),
 
-                    // <--- NOUVEAU : BOUTONS D'ACTION (Si ce n'est pas mon profil)
+                    // BOUTONS ACTIONS (Message / Suivre)
                     if (!isMyProfile) ...[
                       Row(
                         children: [
-                          // Bouton SUIVRE / SUIVRE EN RETOUR / NE PLUS SUIVRE
                           Expanded(
                               child: ElevatedButton(
                                 onPressed: _toggleFollow,
                                 style: ElevatedButton.styleFrom(
-                                  // Gris si on suit déjà (pour se désabonner), Vert sinon
                                   backgroundColor: _isFollowing ? Colors.grey[800] : dGreen,
                                   foregroundColor: _isFollowing ? Colors.white : Colors.black,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   padding: const EdgeInsets.symmetric(vertical: 12),
-                                  // Bordure rouge subtile si on suit déjà (optionnel)
                                   side: _isFollowing ? const BorderSide(width: 0) : BorderSide.none,
                                 ),
                                 child: Text(
-                                  followButtonText, // Texte dynamique
+                                  followButtonText,
                                   style: const TextStyle(fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
                           const SizedBox(width: 10),
-                          // Bouton MESSAGE
                           Expanded(
                             child: ElevatedButton(
                               onPressed: _navigateToChat,
@@ -301,7 +342,7 @@ class _ProfilePageState extends State<ProfilePage>
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16), // Espacement après les boutons
+                      const SizedBox(height: 16),
                     ],
 
                   ],
@@ -309,7 +350,6 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ),
 
-            // Utilisation du widget délégué importé
             SliverPersistentHeader(
               delegate: SliverHeaderDelegate(
                 tabBar: TabBar(
@@ -318,7 +358,6 @@ class _ProfilePageState extends State<ProfilePage>
                   indicatorColor: dGreen,
                   labelColor: dGreen,
                   unselectedLabelColor: Colors.grey,
-                  // On garde tes onglets texte qui fonctionnaient bien
                   tabs: const [
                     Tab(text: "Publications"),
                     Tab(text: "Voyages"),
@@ -348,59 +387,35 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildPublicationsTab() {
     if (_myPosts.isEmpty) {
-      return const Center(
-        child: Text(
-          "Aucune publication.",
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
+      return const Center(child: Text("Aucune publication.", style: TextStyle(color: Colors.grey)));
     }
-
     return GridView.builder(
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
+        crossAxisCount: 3, crossAxisSpacing: 2, mainAxisSpacing: 2,
       ),
       itemCount: _myPosts.length,
       itemBuilder: (context, index) {
         final post = _myPosts[index];
         final int postId = post['post_id'];
-
         return FutureBuilder<List<dynamic>>(
           future: _postService.getMediaTripPosts(postId),
           builder: (context, snapshot) {
-            if (!snapshot.hasData ||
-                snapshot.data == null ||
-                snapshot.data!.isEmpty) {
-              return Container(
-                color: Colors.grey[900],
-                child: const Icon(Icons.image, color: Colors.white24),
-              );
+            if (!snapshot.hasData || snapshot.data == null || snapshot.data!.isEmpty) {
+              return Container(color: Colors.grey[900], child: const Icon(Icons.image, color: Colors.white24));
             }
-
             final List<dynamic> mediaList = snapshot.data!;
             final String? firstImageUrl = mediaList[0]['media_url'];
             final bool isMultiple = mediaList.length > 1;
 
-            if (firstImageUrl == null || firstImageUrl.isEmpty) {
-              return Container(color: Colors.grey[900]);
-            }
+            if (firstImageUrl == null || firstImageUrl.isEmpty) return Container(color: Colors.grey[900]);
 
             return PostGridItem(
               imageUrl: firstImageUrl,
               isMultiple: isMultiple,
               onTap: () async {
                 if (_userData != null) {
-                  // ID utilisé pour le mode "Owner"
-                  final String myId = isMyProfile
-                      ? (_userData!['id']?.toString() ??
-                          _userData!['user_id']?.toString() ??
-                          "0")
-                      : "0";
-
-                  // On attend le retour de la page (true si like ou delete)
+                  final String myId = isMyProfile ? (_userData!['id']?.toString() ?? _userData!['user_id']?.toString() ?? "0") : "0";
                   final bool? shouldRefresh = await Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -412,17 +427,7 @@ class _ProfilePageState extends State<ProfilePage>
                       ),
                     ),
                   );
-
-                  // 👇 MODIFICATION ICI 👇
-                  if (shouldRefresh == true) {
-                    // On recharge juste les données pour mettre à jour les cœurs
-                    _loadAllData(); 
-                    
-                    // J'ai enlevé le SnackBar "Post Supprimé" ici car
-                    // on ne sait pas si c'est un like ou une suppression.
-                    // Si tu veux vraiment confirmer la suppression,
-                    // le mieux est de vérifier si la liste a diminué après le reload.
-                  }
+                  if (shouldRefresh == true) _loadAllData(); 
                 }
               },
             );
@@ -433,60 +438,32 @@ class _ProfilePageState extends State<ProfilePage>
   }
   
   Widget _buildVoyagesTab() {
-    // On utilise un Stack pour placer le bouton "+" par-dessus la liste
     return Stack(
       children: [
-        // 1. La liste ou le message vide
         if (_myTrips.isEmpty)
           _buildPlaceholderTab("Aucun voyage créé")
         else
           ListView.builder(
-            padding: const EdgeInsets.fromLTRB(
-              16,
-              16,
-              16,
-              80,
-            ), // Marge en bas pour le bouton
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
             itemCount: _myTrips.length,
             itemBuilder: (context, index) {
               final trip = _myTrips[index];
               return TripCardItem(
                 trip: trip,
-                onTap: () {
-                  // Navigation vers les détails du voyage (à implémenter si besoin)
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Détails du voyage..."),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
+                onTap: () => _openTripOverlay(trip), // Utilisation de l'overlay de carte
               );
             },
           ),
-
-        // 2. Le bouton flottant (FAB) simulé
-        // <--- MODIFICATION : Visible uniquement si c'est mon profil
         if (isMyProfile)
           Positioned(
-            bottom: 16,
-            right: 16,
+            bottom: 16, right: 16,
             child: FloatingActionButton(
-              heroTag:
-                  "add_trip_profile", // Tag unique pour éviter les conflits d'animation
+              heroTag: "add_trip_profile",
               backgroundColor: dGreen,
               child: const Icon(Icons.add, color: Colors.black),
               onPressed: () async {
-                // Navigation vers la page de création
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CreateTripPage()),
-                );
-
-                // Si un voyage a été créé, on recharge les données
-                if (result == true) {
-                  _loadAllData();
-                }
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateTripPage()));
+                if (result == true) _loadAllData();
               },
             ),
           ),
@@ -495,23 +472,14 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildPlaceholderTab(String message) {
-    return Center(
-      child: Text(message, style: const TextStyle(color: Colors.grey)),
-    );
+    return Center(child: Text(message, style: const TextStyle(color: Colors.grey)));
   }
 
   Widget _buildStatItem(String label, String value) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            color: Colors.white,
-          ),
-        ),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
         Text(label, style: const TextStyle(color: Colors.grey)),
       ],
     );
@@ -525,12 +493,8 @@ class _ProfilePageState extends State<ProfilePage>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text("Erreur profil", style: TextStyle(color: Colors.white)),
-            // Affiche le bouton déconnexion même en cas d'erreur si c'est mon profil
             if (isMyProfile)
-              ElevatedButton(
-                onPressed: _logout,
-                child: const Text("Déconnexion"),
-              ),
+              ElevatedButton(onPressed: _logout, child: const Text("Déconnexion")),
           ],
         ),
       ),

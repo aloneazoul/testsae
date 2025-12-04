@@ -12,16 +12,18 @@ class BottomNavigationBarExample extends StatefulWidget {
   final int initialIndex;
 
   const BottomNavigationBarExample({
-    super.key, 
-    this.toggleTheme, 
-    this.initialIndex = 1
+    super.key,
+    this.toggleTheme,
+    this.initialIndex = 1,
   });
 
   @override
-  State<BottomNavigationBarExample> createState() => _BottomNavigationBarExampleState();
+  State<BottomNavigationBarExample> createState() =>
+      _BottomNavigationBarExampleState();
 }
 
-class _BottomNavigationBarExampleState extends State<BottomNavigationBarExample> {
+class _BottomNavigationBarExampleState
+    extends State<BottomNavigationBarExample> {
   late int _selectedIndex;
   late List<Widget> _widgetOptions;
 
@@ -31,10 +33,10 @@ class _BottomNavigationBarExampleState extends State<BottomNavigationBarExample>
     _selectedIndex = widget.initialIndex;
 
     _widgetOptions = [
-      const MapPage(),
+      const MapPage(data: 1),
       HomePage(),
       const SizedBox(), 
-      ConversationsPage(conversations: sampleConversations()),
+      ConversationsPage(),
       const ProfilePage(),
     ];
   }
@@ -56,32 +58,38 @@ class _BottomNavigationBarExampleState extends State<BottomNavigationBarExample>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _widgetOptions,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: _widgetOptions),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.black,
         type: BottomNavigationBarType.fixed,
-        
+
         // --- PARAMÈTRES DE STYLE ---
-        showSelectedLabels: false,   
+        showSelectedLabels: false,
         showUnselectedLabels: false,
         iconSize: 30, // Icônes plus grosses (Standard ~24)
-        // ---------------------------
 
+        // ---------------------------
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.public_sharp), label: 'Carte'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.public_sharp),
+            label: 'Carte',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Feed'),
-          
+
           // Bouton central encore plus gros pour ressortir
           BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle, size: 48), 
-            label: 'Publier'
+            icon: Icon(Icons.add_circle, size: 48),
+            label: 'Publier',
           ),
-          
-          BottomNavigationBarItem(icon: Icon(Icons.messenger), label: 'Message'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline_sharp), label: 'Compte'),
+
+          BottomNavigationBarItem(
+            icon: Icon(Icons.messenger),
+            label: 'Message',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline_sharp),
+            label: 'Compte',
+          ),
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: dGreen,

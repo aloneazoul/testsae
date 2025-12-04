@@ -17,6 +17,45 @@ router = APIRouter(tags=["Messages"])
 # 🔒 MESSAGES PRIVÉS
 # ============================================================
 
+@router.get("/messages/conversations")
+def get_my_conversations(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Récupère la liste des conversations (dernier message pour chaque contact).
+    """
+    # Cette requête SQL récupère le dernier message échangé avec chaque interlocuteur
+    sql = text("""
+        WITH LastMsgs AS (
+            SELECT 
+                CASE WHEN sender_id = :uid THEN receiver_id ELSE sender_id END AS partner_id,
+                MAX(sent_at) as max_date
+            FROM private_messages
+            WHERE sender_id = :uid OR receiver_id = :uid
+            GROUP BY partner_id
+        )
+        SELECT 
+            u.user_id, 
+            u.username, 
+            u.profile_picture,
+            pm.content,
+            pm.sent_at,
+            pm.is_read_flag,
+            pm.sender_id
+        FROM LastMsgs lm
+        JOIN users u ON u.user_id = lm.partner_id
+        JOIN private_messages pm ON 
+            (pm.sender_id = :uid AND pm.receiver_id = lm.partner_id AND pm.sent_at = lm.max_date)
+            OR 
+            (pm.sender_id = lm.partner_id AND pm.receiver_id = :uid AND pm.sent_at = lm.max_date)
+        ORDER BY lm.max_date DESC;
+    """)
+    
+    res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
+    return list(res)
+
+
 @router.post("/messages/private")
 def send_private_message(
     receiver_id: int = Form(...),
@@ -45,6 +84,7 @@ def send_private_message(
     db.add(pm)
     db.commit()
     db.refresh(pm)
+    
     # 🔔 notif au destinataire
     create_notification(
         db=db,
@@ -319,3 +359,22 @@ def get_group_messages(
     """)
     res = db.execute(sql, {"gid": group_id, "limit": limit}).mappings().all()
     return list(res)
+
+@router.post("/messages/private/read_all/{sender_id}")
+def mark_conversation_read(
+    sender_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Marque tous les messages reçus de 'sender_id' comme lus (is_read_flag = 'Y').
+    """
+    # Mise à jour de masse (UPDATE)
+    db.query(models.PrivateMessage).filter(
+        models.PrivateMessage.sender_id == sender_id,
+        models.PrivateMessage.receiver_id == current_user.user_id,
+        models.PrivateMessage.is_read_flag == 'N'
+    ).update({models.PrivateMessage.is_read_flag: "Y"}, synchronize_session=False)
+
+    db.commit()
+    return {"message": "Conversation marquée comme lue"}

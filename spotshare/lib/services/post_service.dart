@@ -122,6 +122,8 @@ class PostService {
     required int tripId,
     required List<File> imageFiles,
     String caption = "",
+    required double latitude,
+    required double longitude,
   }) async {
     final token = await StorageService.getToken();
     if (token == null) {
@@ -131,7 +133,6 @@ class PostService {
 
     print("🔵 Début création post carrousel pour voyage $tripId...");
 
-    // 1. Créer le post
     final createUrl = Uri.parse("${_client.baseUrl}/posts");
     int? newPostId;
 
@@ -147,6 +148,8 @@ class PostService {
           "post_description": caption,
           "privacy": "PUBLIC",
           "allow_comments": "true",
+          "latitude": latitude.toString(),
+          "longitude": longitude.toString(),
         },
       );
 
@@ -164,13 +167,10 @@ class PostService {
 
     if (newPostId == null) return false;
 
-    // 2. Uploader les images UNE PAR UNE avec compression
     bool allSuccess = true;
     final uploadUrl = Uri.parse("${_client.baseUrl}/posts/$newPostId/media");
-    print(imageFiles);
 
     for (var file in imageFiles) {
-      // ---> COMPRESSION ICI <---
       File fileToSend = await _compressFile(file);
 
       print("📤 Envoi image: ${fileToSend.path.split('/').last}...");
@@ -252,7 +252,6 @@ class PostService {
       return false;
     }
   }
-
 
   // Récupérer le feed découverte
   Future<List<dynamic>> getDiscoveryFeed() async {

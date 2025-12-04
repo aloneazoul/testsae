@@ -5,9 +5,9 @@ import 'package:spotshare/widgets/post_card.dart';
 import 'package:spotshare/utils/constants.dart';
 
 class PostFeedPage extends StatefulWidget {
-  final List<dynamic> postsRaw; 
-  final Map<String, dynamic> userData; 
-  final int initialIndex; 
+  final List<dynamic> postsRaw;
+  final Map<String, dynamic> userData;
+  final int initialIndex;
   final String currentLoggedUserId;
 
   const PostFeedPage({
@@ -25,9 +25,9 @@ class PostFeedPage extends StatefulWidget {
 class _PostFeedPageState extends State<PostFeedPage> {
   late final ScrollController _scrollController;
   final PostService _postService = PostService();
-  
+
   // Cette variable sert à savoir si on doit demander un refresh au retour
-  bool hasDataChanged = false; 
+  bool hasDataChanged = false;
 
   @override
   void initState() {
@@ -66,7 +66,10 @@ class _PostFeedPageState extends State<PostFeedPage> {
                 final bool success = await _postService.deletePost(id);
                 Navigator.pop(ctx, success);
               },
-              child: const Text("Supprimer", style: TextStyle(color: Colors.red)),
+              child: const Text(
+                "Supprimer",
+                style: TextStyle(color: Colors.red),
+              ),
             ),
           ],
         ),
@@ -117,7 +120,9 @@ class _PostFeedPageState extends State<PostFeedPage> {
                 if (!snapshot.hasData) {
                   return const SizedBox(
                     height: 400,
-                    child: Center(child: CircularProgressIndicator(color: dGreen)),
+                    child: Center(
+                      child: CircularProgressIndicator(color: dGreen),
+                    ),
                   );
                 }
 
@@ -135,28 +140,35 @@ class _PostFeedPageState extends State<PostFeedPage> {
                   imageUrls: imageUrls,
                   caption: postData['post_description'] ?? "",
                   likes: postData['likes_count'] ?? postData['nb_likes'] ?? 0,
-                  comments: postData['comments_count'] ?? postData['nb_comments'] ?? 0,
+                  comments:
+                      postData['comments_count'] ??
+                      postData['nb_comments'] ??
+                      0,
                   // C'est cette info qui sera corrigée grâce au Backend
-                  isLiked: (postData['is_liked'] != null && postData['is_liked'] > 0),
-                  date: DateTime.tryParse(postData['created_at'] ?? "") ?? DateTime.now(),
+                  isLiked:
+                      (postData['is_liked'] != null &&
+                      postData['is_liked'] > 0),
+                  date:
+                      DateTime.tryParse(postData['created_at'] ?? "") ??
+                      DateTime.now(),
                   profileImageUrl: widget.userData['img'] ?? "",
                 );
 
                 return PostCard(
                   post: postModel,
                   isOwner: isOwner,
-                  
+
                   // Callback quand on like
                   onLikeChanged: (bool liked, int count) {
-                     // On note que quelque chose a changé
-                     hasDataChanged = true;
+                    // On note que quelque chose a changé
+                    hasDataChanged = true;
                   },
 
                   onDelete: () async {
                     final bool deleted = await _handleDeletePost(postModel.id);
                     if (deleted) {
-                       // Si suppression, on force le refresh direct
-                       Navigator.pop(context, true); 
+                      // Si suppression, on force le refresh direct
+                      Navigator.pop(context, true);
                     }
                   },
                 );

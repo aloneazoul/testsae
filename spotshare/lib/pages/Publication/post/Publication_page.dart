@@ -9,6 +9,7 @@ import 'package:spotshare/utils/constants.dart';
 import 'package:spotshare/pages/Publication/post/gallery_picker_page.dart';
 import 'package:spotshare/widgets/bottom_navigation.dart';
 import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
+import 'package:spotshare/pages/Publication/post/map_selector_page.dart';
 
 class PublishPage extends StatefulWidget {
   const PublishPage({super.key});
@@ -25,8 +26,10 @@ class _PublishPageState extends State<PublishPage> {
   List<CameraDescription>? _cameras;
   final List<XFile> _selectedImages = [];
   bool _loading = true;
-  final ImagePicker _picker = ImagePicker();
   final TextEditingController _captionController = TextEditingController();
+
+  double? selectedLat;
+  double? selectedLon;
 
   @override
   void initState() {
@@ -75,7 +78,7 @@ class _PublishPageState extends State<PublishPage> {
         _cameraController = null;
       }
     } catch (e) {
-      debugPrint("Erreur lors du dispose de la caméra: $e");
+      debugPrint("Erreur lors du dispose caméra: $e");
     }
 
     final result = await Navigator.push<List<File>?>(
@@ -99,12 +102,24 @@ class _PublishPageState extends State<PublishPage> {
     setState(() {
       _selectedImages.clear();
       _captionController.clear();
+      selectedLat = null;
+      selectedLon = null;
     });
     _initCamera();
   }
 
   void _showTripSelectionModal() {
     if (_selectedImages.isEmpty) return;
+
+    if (selectedLat == null || selectedLon == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Veuillez sélectionner une localisation."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -114,7 +129,6 @@ class _PublishPageState extends State<PublishPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        // StatefulBuilder permet de mettre à jour la liste sans fermer le modal
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setModalState) {
             return DraggableScrollableSheet(
@@ -137,14 +151,13 @@ class _PublishPageState extends State<PublishPage> {
                         ),
                       ),
                     ),
-                    
-                    // --- BOUTON CRÉER UN VOYAGE ---
+
                     ListTile(
                       leading: Container(
                         width: 50,
                         height: 50,
                         decoration: BoxDecoration(
-                          color: dGreen.withOpacity(0.2), // Fond vert clair
+                          color: dGreen.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: dGreen),
                         ),
@@ -152,37 +165,38 @@ class _PublishPageState extends State<PublishPage> {
                       ),
                       title: const Text(
                         "Créer un nouveau voyage",
-                        style: TextStyle(color: dGreen, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: dGreen,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       onTap: () async {
-                        // Ouvrir la page de création
                         final result = await Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const CreateTripPage()),
+                          MaterialPageRoute(
+                            builder: (context) => const CreateTripPage(),
+                          ),
                         );
-
-                        // Si un voyage est créé, on rafraîchit la liste du modal
                         if (result == true) {
-                          setModalState(() {
-                            // Cela forcera le FutureBuilder ci-dessous à se relancer
-                            // car setState du parent rebuild aussi le modal
-                          });
+                          setModalState(() {});
                         }
                       },
                     ),
                     const Divider(color: Colors.grey),
-                    
-                    // --- LISTE DES VOYAGES ---
+
                     Expanded(
                       child: FutureBuilder<List<dynamic>>(
-                        future: _tripService.getMyTrips(), // Rechargera les voyages
+                        future: _tripService.getMyTrips(),
                         builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                             return const Center(child: CircularProgressIndicator(color: dGreen));
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(color: dGreen),
+                            );
                           }
-                          
+
                           final trips = snapshot.data ?? [];
-                          
+
                           if (trips.isEmpty) {
                             return const Center(
                               child: Text(
@@ -197,15 +211,14 @@ class _PublishPageState extends State<PublishPage> {
                             itemCount: trips.length,
                             itemBuilder: (context, index) {
                               final trip = trips[index];
-                              
-                              // Gestion de l'image bannière
+
                               ImageProvider? bannerImage;
                               if (trip['banner'] != null) {
-                                final String bannerPath = trip['banner'].toString();
-                                // Utilisation de l'URL correcte (gestion localhost/http)
+                                final String bannerPath = trip['banner']
+                                    .toString();
                                 final url = bannerPath.startsWith('http')
                                     ? bannerPath
-                                    : "http://10.0.2.2:8000/$bannerPath"; // Ajustez l'IP si besoin
+                                    : "http://10.0.2.2:8000/$bannerPath";
                                 bannerImage = NetworkImage(url);
                               }
 
@@ -224,16 +237,25 @@ class _PublishPageState extends State<PublishPage> {
                                         : null,
                                   ),
                                   child: bannerImage == null
-                                      ? const Icon(Icons.map, color: Colors.white54)
+                                      ? const Icon(
+                                          Icons.map,
+                                          color: Colors.white54,
+                                        )
                                       : null,
                                 ),
                                 title: Text(
                                   trip['trip_title'] ?? "Voyage",
                                   style: const TextStyle(color: Colors.white),
                                 ),
-                                subtitle: trip['start_date'] != null 
-                                  ? Text(trip['start_date'], style: const TextStyle(color: Colors.grey, fontSize: 12)) 
-                                  : null,
+                                subtitle: trip['start_date'] != null
+                                    ? Text(
+                                        trip['start_date'],
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      )
+                                    : null,
                                 onTap: () => _publishToTrip(trip['trip_id']),
                               );
                             },
@@ -250,54 +272,54 @@ class _PublishPageState extends State<PublishPage> {
       },
     );
   }
-  
+
   Future<void> _publishToTrip(int tripId) async {
-    Navigator.pop(context); // Ferme le modal
+    Navigator.pop(context);
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text("Envoi en cours...")));
 
-    final files = _selectedImages.map((xfile) => File(xfile.path)).toList();
+    final files = _selectedImages.map((x) => File(x.path)).toList();
 
     final success = await _postService.createCarouselPost(
       tripId: tripId,
       imageFiles: files,
       caption: _captionController.text,
+      latitude: selectedLat!,
+      longitude: selectedLon!,
     );
 
-    if (mounted) {
-      if (success) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) =>
-                const BottomNavigationBarExample(initialIndex: 4),
-          ),
-          (route) => false,
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Post publié !"),
-            backgroundColor: dGreen,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Erreur publication."),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (!mounted) return;
+
+    if (success) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) =>
+              const BottomNavigationBarExample(initialIndex: 4),
+        ),
+        (route) => false,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Post publié !"), backgroundColor: dGreen),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Erreur publication."),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading)
+    if (_loading) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator()),
       );
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -401,6 +423,34 @@ class _PublishPageState extends State<PublishPage> {
           color: Colors.black,
           child: Column(
             children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[850],
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.location_on),
+                label: Text(
+                  selectedLat == null
+                      ? "Ajouter une localisation"
+                      : "Localisation : ${selectedLat!.toStringAsFixed(4)}, ${selectedLon!.toStringAsFixed(4)}",
+                ),
+                onPressed: () async {
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MapSelectorPage(),
+                    ),
+                  );
+
+                  if (result != null && mounted) {
+                    setState(() {
+                      selectedLat = result["lat"];
+                      selectedLon = result["lon"];
+                    });
+                  }
+                },
+              ),
+
               TextField(
                 controller: _captionController,
                 style: const TextStyle(color: Colors.white),
@@ -410,6 +460,7 @@ class _PublishPageState extends State<PublishPage> {
                   border: InputBorder.none,
                 ),
               ),
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
