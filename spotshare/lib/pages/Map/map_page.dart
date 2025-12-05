@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:spotshare/models/landmark.dart';
+import 'package:spotshare/models/landmark_model.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:spotshare/models/post_model.dart';
@@ -24,7 +24,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
   late MapboxMap _mapboxMap;
   bool _mapReady = false;
 
-  final _landmarks = [];
+  final List<Landmark> _landmarks = []; // Typé proprement
 
   final Map<String, Offset> _positions = {};
 
@@ -38,29 +38,26 @@ class _DarkMapboxWidgetState extends State<MapPage> {
   void _initMap() {
     const ACCESS_TOKEN =
         'pk.eyJ1IjoiYWxleGlzZHoiLCJhIjoiY21nNmtrcWc4MGUxaTJoczI1cm5jbGZwdCJ9.x10xKnS4jeJGgs3EuWbdUg';
-
     MapboxOptions.setAccessToken(ACCESS_TOKEN);
   }
 
   Future<void> loadLandmarks() async {
-    // 1️⃣ Charger les landmarks selon le type de data
+    _landmarks.clear(); 
+    
     if (widget.data == 1) {
-      _loadFeedLandmarks();
+      await _loadFeedLandmarks();
     } else if (widget.data == 2 && widget.trip != null) {
       await _loadTripLandmarks(widget.trip);
     }
 
     if (!mounted) return;
-
-    // 2️⃣ Mettre à jour l'état pour redessiner la map
     setState(() {});
 
-    // 3️⃣ Si la map est prête, centrer sur le premier landmark et mettre à jour les positions
     if (_mapReady && _landmarks.isNotEmpty) {
       await _mapboxMap.setCamera(
         CameraOptions(
           center: _landmarks.first.coords,
-          zoom: 1.5, // zoom initial
+          zoom: 1.5,
         ),
       );
       await _updateAllMarkerPositions();
@@ -71,113 +68,48 @@ class _DarkMapboxWidgetState extends State<MapPage> {
     _mapboxMap = mapboxMap;
     setState(() => _mapReady = true);
 
-    // 1️⃣ Centrer sur le premier landmark si déjà chargé
     if (_landmarks.isNotEmpty) {
       await _mapboxMap.setCamera(
         CameraOptions(center: _landmarks.first.coords, zoom: 1.5),
       );
     }
 
-    // 2️⃣ Mettre à jour toutes les positions des markers
     await _updateAllMarkerPositions();
 
-    // 3️⃣ Désactiver rotation et pitch
     await _mapboxMap.gestures.updateSettings(
       GesturesSettings(rotateEnabled: false, pitchEnabled: false),
     );
   }
-  /*
-  void _loadDemoLandmarks() {
-    _landmarks.addAll([
-      Landmark(
-        id: 1,
-        name: "Tour Eiffel",
-        image: "assets/images/tour_eiffel.jpg",
-        owner: "Alexis",
-        coords: Point(coordinates: Position(2.2945, 48.8584)),
-        images: ["assets/images/tour_eiffel.jpg"],
-      ),
-      Landmark(
-        id: 2,
-        name: "Uluru (Ayers Rock)",
-        image: "assets/images/uluru.jpg",
-        owner: "Alone",
-        coords: Point(coordinates: Position(131.0369, -25.3444)),
-        images: ["assets/images/uluru.jpg"],
-      ),
-      Landmark(
-        id: 3,
-        name: "Statue de la Liberté",
-        image: "assets/images/liberty.jpeg",
-        owner: "Clem",
-        coords: Point(coordinates: Position(-74.0445, 40.6892)),
-        images: ["assets/images/liberty.jpeg"],
-      ),
-      Landmark(
-        id: 4,
-        name: "Machu Picchu",
-        image: "assets/images/machu-picchu.jpeg",
-        owner: "Antoine",
-        coords: Point(coordinates: Position(-72.5450, -13.1631)),
-        images: ["assets/images/machu-picchu.jpeg"],
-      ),
-      Landmark(
-        id: 5,
-        name: "Grande Muraille de Chine",
-        image: "assets/images/muraille_chine.webp",
-        owner: "Alone",
-        coords: Point(coordinates: Position(116.5704, 40.4319)),
-        images: ["assets/images/muraille_chine.webp"],
-      ),
-    ]);
-  }*/
 
   Future<void> _loadTripLandmarks(dynamic trip) async {
     final user = await getMyProfile();
     final tripService = TripService();
     final postService = PostService();
 
-    // trip doit être un Map, sinon ça crash
-    if (trip == null || trip["trip_id"] == null) {
-      print("❌ trip NULL ou mauvais format");
-      return;
-    }
+    if (trip == null || trip["trip_id"] == null) return;
 
     final posts = await tripService.getTripPosts(trip["trip_id"]);
-    print(posts);
 
     for (final post in posts) {
-      // 🔹 Récupération de la première image
       final media = await postService.getFirstMediaTripPosts(post["post_id"]);
       final mediaUrl = media?["media_url"] ?? "";
 
-      final List<dynamic> medias = await postService.getMediaTripPosts(
-        post["post_id"],
-      );
-      final List<String> mediaUrls = medias
-          .map((m) => m["media_url"] as String)
-          .toList();
+      final List<dynamic> medias = await postService.getMediaTripPosts(post["post_id"]);
+      final List<String> mediaUrls = medias.map((m) => m["media_url"] as String).toList();
 
-      // 🔹 Sécurisation du titre
       final title = post["post_title"] ?? "Sans titre";
-
-      // 🔹 Sécurisation des coordonnées
       final lon = post["longitude"];
       final lat = post["latitude"];
-
       final vrai_post = PostModel.fromJson(post);
 
-      if (lon == null || lat == null) {
-        print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
-        continue;
-      }
+      if (lon == null || lat == null) continue;
 
       _landmarks.add(
         Landmark(
           id: post["post_id"],
           name: title,
           image: mediaUrl,
-          owner: user?["pseudo"] ?? "Utilisateur",
+          owner: post["username"] ?? "Utilisateur",
           coords: Point(
             coordinates: Position(
               lon is double ? lon : double.tryParse(lon.toString()) ?? 0,
@@ -198,37 +130,25 @@ class _DarkMapboxWidgetState extends State<MapPage> {
     final posts = await _postService.getDiscoveryFeed();
 
     for (final post in posts) {
-      // 🔹 Récupération de la première image
       final media = await _postService.getFirstMediaTripPosts(post["post_id"]);
       final mediaUrl = media?["media_url"] ?? "";
 
-      final List<dynamic> medias = await _postService.getMediaTripPosts(
-        post["post_id"],
-      );
-      final List<String> mediaUrls = medias
-          .map((m) => m["media_url"] as String)
-          .toList();
+      final List<dynamic> medias = await _postService.getMediaTripPosts(post["post_id"]);
+      final List<String> mediaUrls = medias.map((m) => m["media_url"] as String).toList();
 
-      // 🔹 Sécurisation du titre
       final title = post["post_title"] ?? "Sans titre";
-
-      // 🔹 Sécurisation des coordonnées
       final lon = post["longitude"];
       final lat = post["latitude"];
-
       final vrai_post = PostModel.fromJson(post);
 
-      if (lon == null || lat == null) {
-        print("⚠️ Coordonnées NULL → Post ignoré : ${post["post_id"]}");
-        continue;
-      }
+      if (lon == null || lat == null) continue;
 
       _landmarks.add(
         Landmark(
           id: post["post_id"],
           name: title,
           image: mediaUrl,
-          owner: user?["pseudo"] ?? "Utilisateur",
+          owner: post["username"] ?? "Utilisateur",
           coords: Point(
             coordinates: Position(
               lon is double ? lon : double.tryParse(lon.toString()) ?? 0,
@@ -240,8 +160,6 @@ class _DarkMapboxWidgetState extends State<MapPage> {
         ),
       );
     }
-
-    print(_landmarks);
   }
 
   @override
@@ -255,7 +173,6 @@ class _DarkMapboxWidgetState extends State<MapPage> {
               center: _landmarks.isEmpty
                   ? Point(coordinates: Position(0, 0))
                   : _landmarks.first.coords,
-
               zoom: 1.5,
             ),
             onMapCreated: _onMapCreated,
@@ -271,9 +188,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
             ),
           ),
           ..._positions.entries.map((entry) {
-            final lm = _landmarks.firstWhere(
-              (l) => l.id.toString() == entry.key,
-            );
+            final lm = _landmarks.firstWhere((l) => l.id.toString() == entry.key);
             final pos = entry.value;
 
             return Positioned(
@@ -289,16 +204,16 @@ class _DarkMapboxWidgetState extends State<MapPage> {
       ),
     );
   }
-
+  
   bool _isVisibleOnGlobe(Position cam, Position target) {
-    final lat1 = cam.lat * pi / 180;
-    final lon1 = cam.lng * pi / 180;
-    final lat2 = target.lat * pi / 180;
-    final lon2 = target.lng * pi / 180;
-    final v1 = [cos(lat1) * cos(lon1), cos(lat1) * sin(lon1), sin(lat1)];
-    final v2 = [cos(lat2) * cos(lon2), cos(lat2) * sin(lon2), sin(lat2)];
-    final dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
-    return dot > 0;
+      final lat1 = cam.lat * pi / 180;
+      final lon1 = cam.lng * pi / 180;
+      final lat2 = target.lat * pi / 180;
+      final lon2 = target.lng * pi / 180;
+      final v1 = [cos(lat1) * cos(lon1), cos(lat1) * sin(lon1), sin(lat1)];
+      final v2 = [cos(lat2) * cos(lon2), cos(lat2) * sin(lon2), sin(lat2)];
+      final dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+      return dot > 0;
   }
 
   Future<void> _updateAllMarkerPositions() async {
@@ -311,12 +226,7 @@ class _DarkMapboxWidgetState extends State<MapPage> {
         if (!_isVisibleOnGlobe(camPos, lm.coords.coordinates)) continue;
         final screenCoords = await _mapboxMap.pixelForCoordinate(lm.coords);
 
-        if (screenCoords.x.isNaN ||
-            screenCoords.y.isNaN ||
-            screenCoords.x < 0 ||
-            screenCoords.y < 0 ||
-            screenCoords.x > MediaQuery.of(context).size.width ||
-            screenCoords.y > MediaQuery.of(context).size.height)
+        if (screenCoords.x.isNaN || screenCoords.y.isNaN || screenCoords.x < 0 || screenCoords.y < 0 || screenCoords.x > MediaQuery.of(context).size.width || screenCoords.y > MediaQuery.of(context).size.height)
           continue;
 
         newPositions[lm.id.toString()] = Offset(screenCoords.x, screenCoords.y);
@@ -325,12 +235,11 @@ class _DarkMapboxWidgetState extends State<MapPage> {
 
     if (!mounted) return;
     setState(() {
-      _positions
-        ..clear()
-        ..addAll(newPositions);
+      _positions..clear()..addAll(newPositions);
     });
   }
 
+  // 🔥 UPDATE ICI : On passe un callback pour récupérer les likes/comments
   void _showLandmarkDetails(Landmark landmark) {
     showModalBottomSheet(
       context: context,
@@ -339,26 +248,41 @@ class _DarkMapboxWidgetState extends State<MapPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => _LandmarkPopup(landmark: landmark),
+      builder: (context) => _LandmarkPopup(
+        landmark: landmark,
+        // ✅ C'est ici qu'on met à jour la donnée LOCALE de la map
+        onPostUpdated: (updatedPost) {
+          setState(() {
+            final index = _landmarks.indexWhere((l) => l.id == landmark.id);
+            if (index != -1) {
+              // On remplace le landmark par une version à jour (Like activé, etc.)
+              _landmarks[index] = landmark.copyWith(post: updatedPost);
+            }
+          });
+        },
+      ),
     );
   }
 }
 
 class _LandmarkPopup extends StatefulWidget {
   final Landmark landmark;
+  final Function(PostModel) onPostUpdated;
 
-  const _LandmarkPopup({required this.landmark});
+  const _LandmarkPopup({required this.landmark, required this.onPostUpdated});
 
   @override
   State<_LandmarkPopup> createState() => _LandmarkPopupState();
 }
 
 class _LandmarkPopupState extends State<_LandmarkPopup> {
-  bool isLiked = false;
-  double heartScale = 1.0;
+  late PostModel _currentPost;
 
-  bool isCommentMode = false;
-  bool isShareMode = false;
+  @override
+  void initState() {
+    super.initState();
+    _currentPost = widget.landmark.post;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -371,33 +295,14 @@ class _LandmarkPopupState extends State<_LandmarkPopup> {
         ),
         child: Column(
           children: [
-            // --- Barre de poignée ---
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(20))),
             ),
-
-            // --- TITRE ---
             Padding(
               padding: const EdgeInsets.only(bottom: 4.0),
-              child: Text(
-                widget.landmark.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: Text(widget.landmark.name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
             ),
-
-            // --- CORPS SCROLLABLE ---
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
@@ -406,13 +311,24 @@ class _LandmarkPopupState extends State<_LandmarkPopup> {
                   child: Column(
                     children: [
                       PostCard(
-                        post: widget.landmark.post,
+                        post: _currentPost,
                         textSize: 13,
                         isOwner: false,
-                        onLikeChanged: (liked, count) {},
-                        onCommentAdded: (newCount) {},
-                      ),
+                        
+                        // ✅ Quand on like dans la popup
+                        onLikeChanged: (isLiked, newLikeCount) {
+                          final updated = _currentPost.copyWith(isLiked: isLiked, likes: newLikeCount);
+                          setState(() => _currentPost = updated);
+                          widget.onPostUpdated(updated); // On prévient la Map tout de suite
+                        },
 
+                        // ✅ Quand on commente
+                        onCommentAdded: (newCommentCount) {
+                          final updated = _currentPost.copyWith(comments: newCommentCount);
+                          setState(() => _currentPost = updated);
+                          widget.onPostUpdated(updated); // On prévient la Map
+                        },
+                      ),
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -426,10 +342,10 @@ class _LandmarkPopupState extends State<_LandmarkPopup> {
   }
 }
 
+// ... Les classes _MapMarkerWidget, _TrianglePainter et FlightPathPainter restent identiques ...
 class _MapMarkerWidget extends StatelessWidget {
   final Landmark landmark;
   final void Function(Landmark)? onTap;
-
   const _MapMarkerWidget({required this.landmark, this.onTap});
 
   @override
@@ -440,62 +356,22 @@ class _MapMarkerWidget extends StatelessWidget {
         children: [
           Container(
             width: 120,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-            ),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)]),
             child: Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.all(6.0),
-                  child: Text(
-                    "Voyage d'${landmark.owner}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                      fontSize: 14,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  child: Text("${landmark.owner}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 14), textAlign: TextAlign.center),
                 ),
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(12),
-                    bottom: Radius.circular(12),
-                  ),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12), bottom: Radius.circular(12)),
                   child: (landmark.image.startsWith('http')
-                      ? Image.network(
-                          landmark.image,
-                          fit: BoxFit.cover,
-                          height: 80,
-                          width: 120,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: Colors.grey,
-                            height: 80,
-                            width: 120,
-                            child: const Icon(Icons.broken_image),
-                          ),
-                        )
-                      : Image.asset(
-                          landmark.image,
-                          fit: BoxFit.cover,
-                          height: 80,
-                          width: 120,
-                        )),
+                      ? Image.network(landmark.image, fit: BoxFit.cover, height: 80, width: 120, errorBuilder: (_, __, ___) => Container(color: Colors.grey, height: 80, width: 120, child: const Icon(Icons.broken_image)))
+                      : Image.asset(landmark.image, fit: BoxFit.cover, height: 80, width: 120)),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.all(6.0),
-                  child: Text(
-                    landmark.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                      fontSize: 14,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  child: Text(landmark.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 14), textAlign: TextAlign.center),
                 ),
               ],
             ),
@@ -511,36 +387,22 @@ class _TrianglePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, ui.Size size) {
     final paint = Paint()..color = Colors.white;
-    final path = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width / 2, size.height)
-      ..lineTo(size.width, 0)
-      ..close();
+    final path = Path()..moveTo(0, 0)..lineTo(size.width / 2, size.height)..lineTo(size.width, 0)..close();
     canvas.drawPath(path, paint);
   }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class FlightPathPainter extends CustomPainter {
-  final Map<String, Offset> positions; // clés : lm.id.toString()
-  final List landmarks; // list of Landmark (pour l'ordre)
+  final Map<String, Offset> positions;
+  final List landmarks;
   final Paint linePaint;
   final Paint shadowPaint;
-  final Paint planePaint;
 
   FlightPathPainter(this.positions, this.landmarks)
-    : linePaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-      shadowPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.round
-        ..color = Colors.black26,
-      planePaint = Paint()..style = PaintingStyle.fill;
+    : linePaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 3..strokeCap = StrokeCap.round,
+      shadowPaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 6..strokeCap = StrokeCap.round..color = Colors.black26;
 
   @override
   void paint(Canvas canvas, ui.Size size) {
@@ -549,56 +411,25 @@ class FlightPathPainter extends CustomPainter {
       final key = lm.id.toString();
       if (positions.containsKey(key)) pts.add(positions[key]!);
     }
-
     if (pts.length < 2) return;
-
-    // Draw curved segments between consecutive points
     for (int i = 0; i < pts.length - 1; i++) {
       final p0 = pts[i];
       final p1 = pts[i + 1];
-
-      // create a control point for a gentle arc (raise perpendicular)
       final mid = Offset((p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
-      final dx = p1.dx - p0.dx;
-      final dy = p1.dy - p0.dy;
-      // perpendicular vector normalized
-      final perp = Offset(-dy, dx);
-      final dist = sqrt(dx * dx + dy * dy);
-      final factor = (dist / 4).clamp(20.0, 120.0); // adjust arc height
-      final normPerp = perp / (dist == 0 ? 1 : dist);
-      final control = mid + normPerp * factor;
-
-      final path = Path()
-        ..moveTo(p0.dx, p0.dy)
-        ..quadraticBezierTo(control.dx, control.dy, p1.dx, p1.dy);
-
-      // shadow
+      final control = mid + (Offset(-(p1.dy - p0.dy), p1.dx - p0.dx) / sqrt(pow(p1.dx - p0.dx, 2) + pow(p1.dy - p0.dy, 2))) * (sqrt(pow(p1.dx - p0.dx, 2) + pow(p1.dy - p0.dy, 2)) / 4).clamp(20.0, 120.0);
+      final path = Path()..moveTo(p0.dx, p0.dy)..quadraticBezierTo(control.dx, control.dy, p1.dx, p1.dy);
       canvas.drawPath(path, shadowPaint..color = Colors.black26);
-      // main line (gradient-like with white center)
       canvas.drawPath(path, linePaint..color = Colors.white);
     }
-
-    // Draw small plane glyphs on each segment midpoint oriented along angle
     for (int i = 0; i < pts.length - 1; i++) {
-      final p0 = pts[i];
-      final p1 = pts[i + 1];
-
-      // segment midpoint (we'll project along the bezier curve roughly by midpoint)
-      final mx = (p0.dx + p1.dx) / 2;
-      final my = (p0.dy + p1.dy) / 2;
-      final angle = atan2(p1.dy - p0.dy, p1.dx - p0.dx);
-
+      final mx = (pts[i].dx + pts[i + 1].dx) / 2;
+      final my = (pts[i].dy + pts[i + 1].dy) / 2;
       canvas.save();
       canvas.translate(mx, my);
-      canvas.rotate(angle);
+      canvas.rotate(atan2(pts[i + 1].dy - pts[i].dy, pts[i + 1].dx - pts[i].dx));
       canvas.restore();
     }
   }
-
   @override
-  bool shouldRepaint(covariant FlightPathPainter oldDelegate) {
-    // repaint when positions or landmark order changes
-    return oldDelegate.positions != positions ||
-        oldDelegate.landmarks != landmarks;
-  }
+  bool shouldRepaint(covariant FlightPathPainter oldDelegate) => oldDelegate.positions != positions || oldDelegate.landmarks != landmarks;
 }

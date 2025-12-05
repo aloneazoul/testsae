@@ -25,6 +25,10 @@ class BottomNavigationBarExample extends StatefulWidget {
 class _BottomNavigationBarExampleState
     extends State<BottomNavigationBarExample> {
   late int _selectedIndex;
+  
+  // 🔥 1. Création de la télécommande pour le Feed
+  final GlobalKey<HomePageState> _feedKey = GlobalKey<HomePageState>();
+  
   late List<Widget> _widgetOptions;
 
   @override
@@ -34,7 +38,8 @@ class _BottomNavigationBarExampleState
 
     _widgetOptions = [
       const MapPage(data: 1),
-      HomePage(),
+      // 🔥 2. On branche la télécommande sur la HomePage
+      HomePage(key: _feedKey),
       const SizedBox(), 
       ConversationsPage(),
       const ProfilePage(),
@@ -50,6 +55,14 @@ class _BottomNavigationBarExampleState
       return;
     }
 
+    // 🔥 3. Si on clique sur le Feed (Index 1), on force le rechargement
+    if (index == 1) {
+       // On vérifie si on était déjà sur le feed pour scroller en haut, 
+       // ou si on vient d'arriver pour rafraîchir.
+       // Ici, on rafraîchit dans tous les cas quand on clique dessus.
+       _feedKey.currentState?.refreshFeed();
+    }
+
     setState(() {
       _selectedIndex = index;
     });
@@ -58,6 +71,7 @@ class _BottomNavigationBarExampleState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // IndexedStack préserve l'état des pages (ne les détruit pas quand on change d'onglet)
       body: IndexedStack(index: _selectedIndex, children: _widgetOptions),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.black,
@@ -74,7 +88,10 @@ class _BottomNavigationBarExampleState
             icon: Icon(Icons.public_sharp),
             label: 'Carte',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Feed'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_filled), 
+            label: 'Feed'
+          ),
 
           // Bouton central encore plus gros pour ressortir
           BottomNavigationBarItem(

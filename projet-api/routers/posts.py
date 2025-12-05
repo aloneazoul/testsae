@@ -522,7 +522,7 @@ def get_discovery_feed(
 ):
     sql = text("""
         SELECT 
-            p.post_id, p.post_title, p.post_description, p.publication_date, p.latitude,
+            p.post_id, p.post_title, p.post_description, p.publication_date,p.longitude, p.latitude,
             u.user_id, u.username, u.profile_picture,
             
             t.trip_title,             -- On a besoin de ça pour l'affichage "Voyage"

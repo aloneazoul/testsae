@@ -1,3 +1,5 @@
+import 'package:spotshare/models/post_model.dart';
+
 class PostModel {
   final String id;
   final String userId;
@@ -34,6 +36,41 @@ class PostModel {
     this.latitude,
   });
 
+  // --- AJOUT DE LA MÉTHODE COPYWITH ---
+  PostModel copyWith({
+    String? id,
+    String? userId,
+    String? userName,
+    String? profileImageUrl,
+    List<String>? imageUrls,
+    String? caption,
+    int? likes,
+    int? comments,
+    DateTime? date,
+    bool? isLiked,
+    String? tripName,
+    String? placeName,
+    String? cityName,
+    double? latitude,
+  }) {
+    return PostModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      userName: userName ?? this.userName,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      imageUrls: imageUrls ?? this.imageUrls,
+      caption: caption ?? this.caption,
+      likes: likes ?? this.likes,
+      comments: comments ?? this.comments,
+      date: date ?? this.date,
+      isLiked: isLiked ?? this.isLiked,
+      tripName: tripName ?? this.tripName,
+      placeName: placeName ?? this.placeName,
+      cityName: cityName ?? this.cityName,
+      latitude: latitude ?? this.latitude,
+    );
+  }
+
   factory PostModel.fromJson(Map<String, dynamic> json) {
     String? mediaString = json['media_urls']; 
     List<String> images = [];
@@ -54,7 +91,6 @@ class PostModel {
       }
 
       // 3. On parse et on convertit en HEURE LOCALE (.toLocal())
-      // C'est ça qui corrige le décalage de 1h
       final date = DateTime.tryParse(isoString);
       if (date == null) return DateTime.now();
       
