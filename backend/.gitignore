@@ -1,1 +1,6 @@
 app/__pycache__
+app/db/__pycache__
+app/models/__pycache__
+app/controllers/__pycache__
+app/routes/__pycache__
+app/schemas/__pycache__

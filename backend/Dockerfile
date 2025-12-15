@@ -13,8 +13,11 @@ RUN pip install -r requirements.txt
 # Copie de l'application
 COPY ./app /backend/app
 
+# Copie du fichier .env
+COPY ./.env /backend/.env
+
 # Exposition du port 
 EXPOSE 8000
 
 # Lancement du serveur 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

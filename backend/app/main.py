@@ -1,14 +1,18 @@
 from fastapi import FastAPI
-from . import models, database
-from .routers import livres, utilisateurs # Importez utilisateurs
+from sqlalchemy import text
+from app.db.session import engine, get_db
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
-models.Base.metadata.create_all(bind=database.engine)
+# Import des routes
+from app.routes import user_routes
 
-app = FastAPI()
+app = FastAPI(title="API Bibliothèque")
 
-app.include_router(livres.router)
-app.include_router(utilisateurs.router) # Ajoutez cette ligne
+# Inclusion des routes utilisateurs
+app.include_router(user_routes.router)
 
+# Route racine
 @app.get("/")
-def root():
-    return {"message": "Bienvenue sur l'API de la Bibliothèque"}
+async def root():
+    return {"message": "Bienvenue sur l'API Bibliothèque"}

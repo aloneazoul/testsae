@@ -15,7 +15,7 @@ CREATE TABLE Utilisateurs (
 -- Création de la table Livres
 CREATE TABLE Livres (
     id_livre INT AUTO_INCREMENT PRIMARY KEY,
-    isbn VARCHAR(13) UNIQUE,
+    isbn VARCHAR(17) UNIQUE,
     titre VARCHAR(255) NOT NULL,
     auteur VARCHAR(255),
     editeur VARCHAR(100),
