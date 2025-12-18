@@ -1,13 +1,160 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BiblioTech</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="fr" class="h-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataImporter Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .navbar-brand {
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        .upload-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .form-control-lg {
+            border-radius: 10px;
+        }
+        .btn-upload {
+            border-radius: 10px;
+            padding: 12px 30px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(13, 110, 253, 0.3);
+        }
+        #statusArea {
+            min-height: 60px; 
+        }
+    </style>
+</head>
+<body class="d-flex flex-column h-100">
+    
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-database me-2"></i>DataImporter <span class="text-info">Pro</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item"><a class="nav-link active" href="#">Accueil</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#">Tableau de bord (Soon)</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-shrink-0 mb-5">
+        <div class="container mt-5">
+            <div class="row justify-content-center">
+                <div class="col-lg-8 col-md-10">
+                    <div class="text-center mb-5">
+                        <h1 class="display-5 fw-bold text-dark">Importation de Données CSV</h1>
+                        <p class="lead text-muted">Chargez vos fichiers volumineux, nous traitons le reste.</p>
+                    </div>
+
+                    <div class="card upload-card p-4">
+                        <div class="card-body text-center">
+                            <i class="fas fa-file-csv fa-4x text-primary mb-4"></i>
+                            <h3 class="card-title mb-4">Sélectionnez votre fichier source</h3>
+                            
+                            <div class="mb-4">
+                                <input class="form-control form-control-lg" type="file" id="csvFile" accept=".csv">
+                                <div class="form-text text-muted text-start mt-2 ms-2">Formats acceptés : .csv uniquement.</div>
+                            </div>
+
+                            <button id="uploadBtn" class="btn btn-primary btn-lg btn-upload w-100">
+                                <i class="fas fa-cloud-upload-alt me-2"></i>Envoyer le fichier
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="statusArea" class="mt-4"></div>
+
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer mt-auto py-3 bg-white text-center text-muted border-top">
+        <div class="container">
+            <span>© 2025 DataImporter Pro Project. Design Moderne.</span>
+        </div>
+    </footer>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('csvFile');
+        const statusArea = document.getElementById('statusArea');
+
+
+        function showAlert(message, type) {
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
+            statusArea.innerHTML = `
+                <div class="alert alert-${type} d-flex align-items-center shadow-sm fade show" role="alert">
+                    <i class="fas ${icon} fa-2x me-3"></i>
+                    <div>${message}</div>
+                    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            statusArea.innerHTML = ''; 
+
+            if (fileInput.files.length === 0) {
+                showAlert("Veuillez sélectionner un fichier CSV avant d'envoyer.", "warning");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const originalBtnText = uploadBtn.innerHTML;
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Traitement en cours...';
+
+            try {
+                const response = await fetch('http://localhost:8081/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert(`<strong>Succès !</strong> Le fichier a été reçu par le processeur Python. <br> Lignes lues : ${result.lines_read}.`, "success");
+                    fileInput.value = '';
+                } else {
+                    showAlert(`<strong>Erreur du serveur :</strong> ${result.error}`, "danger");
+                }
+
+            } catch (error) {
+
+                console.error('Erreur:', error);
+                showAlert("<strong>Impossible de contacter le serveur de traitement.</strong> <br>Vérifiez que le conteneur Python (port 8081) est lancé.", "danger");
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = originalBtnText;
+            }
+        });
+    </script>
+</body>
 </html>

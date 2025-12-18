@@ -1,21 +1,18 @@
 services:
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend/app:/backend/app
-    restart: always
-    depends_on:
-      - database
-
   database:
-    image: mariadb:10.6
-    restart: always
+    image: postgres:17
     environment:
-      - MARIADB_ROOT_PASSWORD=pwd
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
     ports:
-      - "3306:3306"
+      - "5432:5432" 
     volumes:
-      - ./database/data:/var/lib/mysql
-      - ./database/init/dump.sql:/docker-entrypoint-initdb.d/dump.sql
+      - ./pg_data:/var/lib/postgresql/data 
+    networks:
+      - mon-reseau
+
+networks:
+  mon-reseau:
+    driver: bridge
+    
