@@ -1,15 +1,16 @@
-# Automatisation
+# SAE BUT 3
 
-- Objectif du projet :
+## Composition de l'équipe
 
-    Créer une interface permettant l'import de optimisé de logs en bdd depuis un fichier csv precis.
+| Nom | Prénom | Parcours |
+|---|---|---|
+| Azoulay | Alone | Parcours A |
+| Dooh | Clémentine | Parcours C |
+| Duez | Alexis | Parcours A |
+| Kengue | Henrina | Parcours C |
+| Menial | Antoine | Parcours B |
 
 
-- Structure du projet :
-```mermaid
-flowchart LR
-    Client -->|8080:80| IHM
-    IHM -->|network_frontend-8081| Backend[traitement backend]
+## Sujet
 
-    Backend -->|network_backend-5000| InterfaceBDD[interface bdd]
-    InterfaceBDD -->|network_bdd-5432| DB[(PostgreSQL)]
+SpotShare réseau social basé sur le partage d'éxperiences de voyages.
