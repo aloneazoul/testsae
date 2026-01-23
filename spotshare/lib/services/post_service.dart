@@ -8,6 +8,7 @@ import 'package:spotshare/models/post_model.dart';
 import 'package:spotshare/services/api_client.dart';
 import 'package:spotshare/services/storage_service.dart';
 import 'package:path/path.dart' as p;
+import 'package:video_compress/video_compress.dart'; // Import nécessaire
 
 class PostService {
   final ApiClient _client = ApiClient();
@@ -156,7 +157,16 @@ class PostService {
     final uploadUrl = Uri.parse("${_client.baseUrl}/posts/$newPostId/media");
 
     for (var file in imageFiles) {
-      File fileToSend = await _compressFile(file);
+      File fileToSend;
+      
+      // Détection : Vidéo vs Image
+      final ext = p.extension(file.path).toLowerCase();
+      if (['.mp4', '.mov', '.avi', '.mkv'].contains(ext)) {
+         fileToSend = await _compressVideo(file);
+      } else {
+         fileToSend = await _compressFile(file);
+      }
+
       try {
         final request = http.MultipartRequest("POST", uploadUrl);
         request.headers['Authorization'] = "Bearer $token";
@@ -194,6 +204,29 @@ class PostService {
     );
 
     return result != null ? File(result.path) : file;
+  }
+
+  // MODIFIÉ : Compression vidéo HD pour meilleure qualité
+  Future<File> _compressVideo(File file) async {
+    try {
+      // On compresse seulement si > 50 Mo pour garder la qualité originale des petites vidéos
+      if (await file.length() < 50 * 1024 * 1024) return file;
+
+      final info = await VideoCompress.compressVideo(
+        file.path,
+        quality: VideoQuality.Res1280x720Quality, // HD 720p (nettement mieux que Medium)
+        deleteOrigin: false,
+        includeAudio: true,
+      );
+      
+      if (info != null && info.file != null) {
+        return info.file!;
+      }
+      return file;
+    } catch (e) {
+      print("Erreur compression vidéo: $e");
+      return file;
+    }
   }
 
   Future<bool> deletePost(int postId) async {

@@ -7,9 +7,9 @@ import 'package:spotshare/models/post_model.dart';
 import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/trip_service.dart';
 import 'dart:ui' as ui;
-
 import 'package:spotshare/services/user_service.dart';
 import 'package:spotshare/widgets/post_card.dart';
+import 'package:path/path.dart' as p; // AJOUT POUR GÉRER L'EXTENSION
 
 class MapPage extends StatefulWidget {
   final int data;
@@ -418,6 +418,14 @@ class _MapMarkerWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    
+    // LOGIQUE CORRIGÉE POUR L'IMAGE
+    String displayUrl = landmark.image;
+    final ext = p.extension(displayUrl).toLowerCase();
+    if (['.mp4', '.mov', '.avi'].contains(ext)) {
+       displayUrl = displayUrl.replaceAll(RegExp(r'\.(mp4|mov|avi)$', caseSensitive: false), '.jpg');
+    }
+
     return GestureDetector(
       onTap: () => onTap?.call(landmark),
       child: Column(
@@ -448,9 +456,9 @@ class _MapMarkerWidget extends StatelessWidget {
                     top: Radius.circular(12),
                     bottom: Radius.circular(12),
                   ),
-                  child: (landmark.image.startsWith('http')
+                  child: (displayUrl.startsWith('http')
                       ? Image.network(
-                          landmark.image,
+                          displayUrl, // URL Modifiée (.jpg)
                           fit: BoxFit.cover,
                           height: 80,
                           width: 120,
@@ -462,7 +470,7 @@ class _MapMarkerWidget extends StatelessWidget {
                           ),
                         )
                       : Image.asset(
-                          landmark.image,
+                          displayUrl,
                           fit: BoxFit.cover,
                           height: 80,
                           width: 120,

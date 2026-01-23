@@ -4,7 +4,7 @@ import 'package:spotshare/services/storage_service.dart';
 import 'dart:io';
 
 String getBaseUrl() {
-  return "https://api-spotshare.onrender.com";
+  return "https://spotshareapi.fr";
 }
 
 Future<bool> loginToServer(String email, String password) async {

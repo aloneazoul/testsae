@@ -8,6 +8,8 @@ import 'package:spotshare/pages/Publication/post/gallery_picker_page.dart';
 import 'package:spotshare/widgets/bottom_navigation.dart';
 import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
 import 'package:spotshare/pages/Publication/post/map_selector_page.dart';
+import 'package:video_player/video_player.dart'; // AJOUT
+import 'package:path/path.dart' as p; // AJOUT
 
 class PublishPage extends StatefulWidget {
   const PublishPage({super.key});
@@ -26,6 +28,7 @@ class _PublishPageState extends State<PublishPage> {
 
   final List<XFile> _selectedImages = [];
   bool _loading = true;
+  bool _isRecording = false; // AJOUT : État de l'enregistrement
   final TextEditingController _captionController = TextEditingController();
 
   double? selectedLat;
@@ -56,7 +59,7 @@ class _PublishPageState extends State<PublishPage> {
         _cameraController = CameraController(
           _cameras![_selectedCameraIndex],
           ResolutionPreset.high,
-          enableAudio: false,
+          enableAudio: true, // IMPORTANT : Activer l'audio pour les vidéos
         );
 
         await _cameraController!.initialize();
@@ -85,11 +88,40 @@ class _PublishPageState extends State<PublishPage> {
     try {
       final image = await _cameraController!.takePicture();
       setState(() {
-        _selectedImages.clear();
         _selectedImages.add(image);
       });
     } catch (e) {
       debugPrint("Erreur prise de photo: $e");
+    }
+  }
+
+  // AJOUT : Démarrer l'enregistrement vidéo
+  Future<void> _startRecording() async {
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized ||
+        _cameraController!.value.isRecordingVideo) return;
+
+    try {
+      await _cameraController!.startVideoRecording();
+      setState(() => _isRecording = true);
+    } catch (e) {
+      print("Erreur startRecording: $e");
+    }
+  }
+
+  // AJOUT : Arrêter l'enregistrement vidéo
+  Future<void> _stopRecording() async {
+    if (_cameraController == null || !_cameraController!.value.isRecordingVideo)
+      return;
+
+    try {
+      final video = await _cameraController!.stopVideoRecording();
+      setState(() {
+        _isRecording = false;
+        _selectedImages.add(video); // Ajoute la vidéo à la liste
+      });
+    } catch (e) {
+      print("Erreur stopRecording: $e");
     }
   }
 
@@ -112,7 +144,7 @@ class _PublishPageState extends State<PublishPage> {
 
     if (result != null && result.isNotEmpty) {
       setState(() {
-        _selectedImages.clear();
+        // On suppose que la galerie peut renvoyer des images et vidéos
         _selectedImages.addAll(result.map((f) => XFile(f.path)));
       });
     } else {
@@ -301,6 +333,7 @@ class _PublishPageState extends State<PublishPage> {
       context,
     ).showSnackBar(const SnackBar(content: Text("Envoi en cours...")));
 
+    // Conversion XFile -> File
     final files = _selectedImages.map((x) => File(x.path)).toList();
 
     final success = await _postService.createCarouselPost(
@@ -365,6 +398,27 @@ class _PublishPageState extends State<PublishPage> {
         else
           Container(color: Colors.black),
 
+        // AJOUT : Indicateur d'enregistrement
+        if (_isRecording)
+          Positioned(
+            top: 40,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  "Enregistrement...",
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+
         Positioned(
           bottom: 60,
           left: 0,
@@ -372,24 +426,45 @@ class _PublishPageState extends State<PublishPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              FloatingActionButton(
-                heroTag: "gallery",
-                backgroundColor: Colors.grey[800],
-                onPressed: _pickFromGallery,
-                child: const Icon(Icons.photo_library, color: Colors.white),
+              if (!_isRecording)
+                FloatingActionButton(
+                  heroTag: "gallery",
+                  backgroundColor: Colors.grey[800],
+                  onPressed: _pickFromGallery,
+                  child: const Icon(Icons.photo_library, color: Colors.white),
+                )
+              else
+                const SizedBox(width: 56),
+
+              // BOUTON DE CAPTURE MODIFIÉ
+              GestureDetector(
+                onLongPress: _startRecording,
+                onLongPressUp: _stopRecording,
+                onTap: _takePicture,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isRecording ? Colors.red : Colors.white,
+                    border: Border.all(
+                        color: Colors.white, width: _isRecording ? 6 : 4),
+                  ),
+                  child: _isRecording
+                      ? const Icon(Icons.stop, color: Colors.white, size: 40)
+                      : null,
+                ),
               ),
-              FloatingActionButton(
-                heroTag: "snap",
-                backgroundColor: Colors.white,
-                child: const Icon(Icons.circle, size: 50, color: Colors.black),
-                onPressed: _takePicture,
-              ),
-              FloatingActionButton(
-                heroTag: "switch",
-                backgroundColor: Colors.grey[800],
-                onPressed: _toggleCamera,
-                child: const Icon(Icons.flip_camera_ios, color: Colors.white),
-              ),
+
+              if (!_isRecording)
+                FloatingActionButton(
+                  heroTag: "switch",
+                  backgroundColor: Colors.grey[800],
+                  onPressed: _toggleCamera,
+                  child: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                )
+              else
+                const SizedBox(width: 56),
             ],
           ),
         ),
@@ -407,10 +482,17 @@ class _PublishPageState extends State<PublishPage> {
             itemCount: _selectedImages.length,
             itemBuilder: (context, index) {
               final file = _selectedImages[index];
+              final extension = p.extension(file.path).toLowerCase();
+              final isVideo =
+                  ['.mp4', '.mov', '.avi', '.mkv'].contains(extension);
+
               return Stack(
                 children: [
                   SizedBox.expand(
-                    child: Image.file(File(file.path), fit: BoxFit.cover),
+                    // AJOUT : Choix entre Image et VideoPlayer
+                    child: isVideo
+                        ? _VideoPreviewItem(file: File(file.path))
+                        : Image.file(File(file.path), fit: BoxFit.cover),
                   ),
                   Positioned(
                     top: 16,
@@ -524,5 +606,56 @@ class _PublishPageState extends State<PublishPage> {
     _cameraController?.dispose();
     _captionController.dispose();
     super.dispose();
+  }
+}
+
+// AJOUT : Widget pour prévisualiser la vidéo dans le carrousel
+class _VideoPreviewItem extends StatefulWidget {
+  final File file;
+  const _VideoPreviewItem({required this.file});
+
+  @override
+  State<_VideoPreviewItem> createState() => _VideoPreviewItemState();
+}
+
+class _VideoPreviewItemState extends State<_VideoPreviewItem> {
+  late VideoPlayerController _controller;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.file(widget.file)
+      ..initialize().then((_) {
+        setState(() => _initialized = true);
+        _controller.setLooping(true);
+        _controller.play(); // Lecture auto
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_initialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return GestureDetector(
+      onTap: () {
+        if (_controller.value.isPlaying) {
+          _controller.pause();
+        } else {
+          _controller.play();
+        }
+      },
+      child: AspectRatio(
+        aspectRatio: _controller.value.aspectRatio,
+        child: VideoPlayer(_controller),
+      ),
+    );
   }
 }

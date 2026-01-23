@@ -11,6 +11,8 @@ import 'login_page.dart';
 import 'package:spotshare/pages/Account/trip_map_overlay.dart';
 import 'package:spotshare/pages/Chat/chat_page.dart';
 import 'package:spotshare/models/conversation.dart';
+// AJOUT : Import du widget grid item
+import 'package:spotshare/widgets/post_grid_item.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
@@ -446,6 +448,8 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  // --- CORRECTION ICI ---
+  // On utilise PostGridItem au lieu de Image.network pour gérer les vidéos
   Widget _buildPostsGrid() {
     if (_myPosts.isEmpty) {
       return const Center(
@@ -485,7 +489,10 @@ class _ProfilePageState extends State<ProfilePage>
               isMultiple = snapshot.data!.length > 1;
             }
 
-            return InkWell(
+            // Utilisation du widget corrigé
+            return PostGridItem(
+              imageUrl: imageUrl ?? "",
+              isMultiple: isMultiple,
               onTap: () async {
                 final String myId = isMyProfile
                     ? (_userData!['id']?.toString() ??
@@ -509,32 +516,6 @@ class _ProfilePageState extends State<ProfilePage>
                   _loadAllData();
                 }
               },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (imageUrl != null)
-                    Image.network(imageUrl!, fit: BoxFit.cover)
-                  else
-                    Container(
-                      color: Colors.grey[900],
-                      child: const Icon(
-                        Icons.image_not_supported,
-                        color: Colors.white24,
-                      ),
-                    ),
-
-                  if (isMultiple)
-                    const Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Icon(
-                        Icons.collections,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
-                ],
-              ),
             );
           },
         );

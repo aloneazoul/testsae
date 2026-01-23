@@ -6,6 +6,8 @@ import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/comment_service.dart';
 import 'package:spotshare/services/user_service.dart';
 import 'package:spotshare/utils/constants.dart';
+import 'package:video_player/video_player.dart'; // IMPORTANT
+import 'package:path/path.dart' as p; // IMPORTANT
 
 class PostCard extends StatefulWidget {
   final PostModel post;
@@ -51,9 +53,11 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     commentCount = widget.post.comments;
 
     _pageController = PageController();
+    
+    // Initialisation
     imageHeights = List.filled(
       widget.post.imageUrls.isNotEmpty ? widget.post.imageUrls.length : 1,
-      250,
+      350.0, // Valeur par défaut
     );
 
     _heartController = AnimationController(
@@ -86,6 +90,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
   }
 
   double _calculateHeight(String url, double screenWidth) {
+    // Essaie d'extraire les dimensions de l'URL Cloudinary/autre si présentes
     final regex = RegExp(r'/(\d+)/(\d+)$');
     final match = regex.firstMatch(url);
     if (match != null) {
@@ -93,7 +98,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
       final h = double.parse(match.group(2)!);
       return screenWidth * (h / w);
     }
-    return screenWidth;
+    return screenWidth; // Carré par défaut
   }
 
   void _updateImageHeights() {
@@ -245,6 +250,8 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     final double mainSize = widget.textSize;
     final double titleSize = widget.textSize + 4;
     final screenWidth = MediaQuery.of(context).size.width;
+    
+    // Calcul de la hauteur de la première image/vidéo
     double firstImageHeight = screenWidth;
     if (widget.post.imageUrls.isNotEmpty) {
       firstImageHeight = _calculateHeight(
@@ -343,24 +350,16 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
               onPageChanged: (i) => setState(() => currentPage = i),
               itemBuilder: (context, index) {
                 final url = widget.post.imageUrls[index];
+                
+                // === C'EST ICI QUE LE CHANGEMENT OPÈRE ===
+                // On utilise _MediaPostItem au lieu de Image.network direct
                 return GestureDetector(
                   onDoubleTapDown: handleDoubleTap,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      Image.network(
-                        url,
-                        width: double.infinity,
-                        height: firstImageHeight,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: Colors.grey[800],
-                          child: const Icon(
-                            Icons.broken_image,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
+                      _MediaPostItem(url: url, height: firstImageHeight),
+                      
                       if (heartPosition != null && currentPage == index)
                         AnimatedBuilder(
                           animation: _heartController,
@@ -523,6 +522,93 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
   }
 }
 
+// === WIDGET QUI DÉTECTE SI C'EST UNE VIDÉO OU UNE IMAGE ===
+class _MediaPostItem extends StatefulWidget {
+  final String url;
+  final double height;
+
+  const _MediaPostItem({required this.url, required this.height});
+
+  @override
+  State<_MediaPostItem> createState() => _MediaPostItemState();
+}
+
+class _MediaPostItemState extends State<_MediaPostItem> {
+  late VideoPlayerController _videoController;
+  bool _isVideo = false;
+  bool _isInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // On regarde l'extension du fichier
+    final ext = p.extension(widget.url).toLowerCase();
+    _isVideo = ['.mp4', '.mov', '.avi', '.mkv'].contains(ext);
+
+    if (_isVideo) {
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+        ..initialize().then((_) {
+          if (mounted) {
+            setState(() => _isInitialized = true);
+            _videoController.setLooping(true);
+            _videoController.play();
+          }
+        }).catchError((error) {
+          debugPrint("Erreur chargement vidéo: $error");
+        });
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_isVideo) {
+      _videoController.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Cas Image : on utilise Image.network classique
+    if (!_isVideo) {
+      return Image.network(
+        widget.url,
+        width: double.infinity,
+        height: widget.height,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+          color: Colors.grey[800],
+          child: const Icon(Icons.broken_image, color: Colors.white),
+        ),
+      );
+    }
+
+    // Cas Vidéo en chargement
+    if (!_isInitialized) {
+      return Container(
+        height: widget.height,
+        color: Colors.black,
+        child: const Center(child: CircularProgressIndicator(color: dGreen)),
+      );
+    }
+
+    // Cas Vidéo prête
+    return SizedBox(
+      height: widget.height,
+      width: double.infinity,
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: _videoController.value.size.width,
+          height: _videoController.value.size.height,
+          child: VideoPlayer(_videoController),
+        ),
+      ),
+    );
+  }
+}
+
+// === GESTION DES COMMENTAIRES (INCHANGÉ MAIS NÉCESSAIRE) ===
 class _CommentsSheet extends StatefulWidget {
   final String postId;
   final int commentCount;

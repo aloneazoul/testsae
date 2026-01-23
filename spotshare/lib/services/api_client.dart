@@ -9,7 +9,7 @@ class ApiClient {
   ApiClient._internal();
 
   String get baseUrl {
-    return "https://api-spotshare.onrender.com";
+    return "https://spotshareapi.fr";
   }
 
   Future<Map<String, String>> _getHeaders() async {
