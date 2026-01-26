@@ -67,9 +67,11 @@ class PostService {
     }
   }
 
-  Future<List<dynamic>> getFeed() async {
+  // MODIFIÉ : Ajout du paramètre type (optionnel, par défaut POST)
+  Future<List<dynamic>> getFeed({String type = "POST"}) async {
     try {
-      final response = await _client.get("/posts/feed");
+      // On passe le post_type en paramètre GET
+      final response = await _client.get("/posts/feed?post_type=$type");
       if (response != null && response is List) return response;
       return [];
     } catch (e) {
@@ -111,12 +113,14 @@ class PostService {
     }
   }
 
+  // MODIFIÉ : Ajout du paramètre postType
   Future<bool> createCarouselPost({
     required int tripId,
     required List<File> imageFiles,
     String caption = "",
     required double latitude,
     required double longitude,
+    String postType = "POST", // NOUVEAU
   }) async {
     final token = await StorageService.getToken();
     if (token == null) return false;
@@ -135,6 +139,7 @@ class PostService {
           "trip_id": tripId.toString(),
           "post_description": caption,
           "privacy": "PUBLIC",
+          "post_type": postType, // Transmission à l'API
           "allow_comments": "true",
           "latitude": latitude.toString(),
           "longitude": longitude.toString(),
@@ -239,9 +244,11 @@ class PostService {
     }
   }
 
-  Future<List<dynamic>> getDiscoveryFeed() async {
+  // MODIFIÉ : Ajout du paramètre type
+  Future<List<dynamic>> getDiscoveryFeed({String type = "POST"}) async {
     final token = await StorageService.getToken();
-    final url = "${_client.baseUrl}/feed/discovery";
+    // On ajoute le paramètre à l'URL
+    final url = "${_client.baseUrl}/feed/discovery?post_type=$type";
 
     try {
       final response = await http.get(
@@ -261,9 +268,10 @@ class PostService {
     return [];
   }
 
-  Future<List<dynamic>> getPostsByUser(String userId) async {
+  // MODIFIÉ : Ajout du paramètre type
+  Future<List<dynamic>> getPostsByUser(String userId, {String type = "POST"}) async {
     try {
-      final response = await _client.get("/posts/user/$userId");
+      final response = await _client.get("/posts/user/$userId?post_type=$type");
       if (response != null && response is List) return response;
       return [];
     } catch (e) {

@@ -23,6 +23,7 @@ def create_post(
     post_title: str = Form(None),
     post_description: str = Form(None),
     privacy: str = Form("PUBLIC"),
+    post_type: str = Form("POST"),
     allow_comments: bool = Form(True),
     latitude: str = Form(...),
     longitude: str = Form(...),
@@ -33,11 +34,15 @@ def create_post(
 ):
     if privacy not in ["PUBLIC", "FRIENDS", "PRIVATE"]:
         raise HTTPException(400, "Privacy invalide")
+    
+    if post_type not in ["POST", "MEMORY"]:
+        raise HTTPException(400, "Type de post invalide (POST ou MEMORY)")
 
     post = models.Post(
         post_title=post_title,
         post_description=post_description,
         privacy=privacy,
+        post_type=post_type,
         allow_comments_flag="Y" if allow_comments else "N",
         latitude=latitude,
         longitude=longitude,
@@ -53,7 +58,6 @@ def create_post(
     db.commit()
     db.refresh(post)
 
-    # ensuite seulement, quand le post existe bien en BDD
     refresh_map_feed(db)
 
     return {"message": "Post créé", "post_id": post.post_id}
@@ -75,7 +79,7 @@ def upload_media(
         raise HTTPException(404, "Post introuvable")
     if post.user_id != current_user.user_id:
         raise HTTPException(403, "Tu ne peux modifier que tes posts")
-
+    
     try:
         upload = cloudinary.uploader.upload(
             file.file,
@@ -86,7 +90,7 @@ def upload_media(
         raise HTTPException(500, f"Erreur Cloudinary: {e}")
 
     media_type = "IMAGE" if upload.get("resource_type") == "image" else "VIDEO"
-
+    
     media = models.Media(
         post_id=post_id,
         media_url=upload["secure_url"],
@@ -112,6 +116,7 @@ def upload_media(
 # ============================================================
 @router.get("/posts/feed")
 def get_feed(
+    post_type: str = "POST",
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -120,32 +125,35 @@ def get_feed(
             p.*, 
             u.username, 
             u.profile_picture,
-            t.trip_title,             -- ✈️ Titre du voyage
-            pl.place_name,            -- 📍 Nom du lieu précis
-            c.city_name,              -- 🏙️ Ville
+            t.trip_title,             
+            pl.place_name,            
+            c.city_name,              
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id) as comments_count,
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id AND l.user_id = :me) as is_liked,
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
-        LEFT JOIN trips t ON p.trip_id = t.trip_id          -- Jointure Voyage
-        LEFT JOIN places pl ON p.place_id = pl.place_id     -- Jointure Lieu
-        LEFT JOIN cities c ON pl.city_id = c.city_id        -- Jointure Ville
+        LEFT JOIN trips t ON p.trip_id = t.trip_id          
+        LEFT JOIN places pl ON p.place_id = pl.place_id     
+        LEFT JOIN cities c ON pl.city_id = c.city_id        
         WHERE 
-            p.privacy = 'PUBLIC'
-            OR (p.privacy = 'FRIENDS' AND p.user_id IN (
-                SELECT 
-                    CASE WHEN f.user_id = :me THEN f.user_id_friend ELSE f.user_id END
-                FROM friends f
-                WHERE f.status = 'ACCEPTED' AND (f.user_id = :me OR f.user_id_friend = :me)
-            ))
-            OR p.user_id = :me
+            p.post_type = :ptype
+            AND (
+                p.privacy = 'PUBLIC'
+                OR (p.privacy = 'FRIENDS' AND p.user_id IN (
+                    SELECT 
+                        CASE WHEN f.user_id = :me THEN f.user_id_friend ELSE f.user_id END
+                    FROM friends f
+                    WHERE f.status = 'ACCEPTED' AND (f.user_id = :me OR f.user_id_friend = :me)
+                ))
+                OR p.user_id = :me
+            )
         ORDER BY p.publication_date DESC
         LIMIT 100
     """)
 
-    res = db.execute(sql, {"me": current_user.user_id}).mappings().all()
+    res = db.execute(sql, {"me": current_user.user_id, "ptype": post_type}).mappings().all()
     return list(res)
 
 
@@ -186,18 +194,14 @@ def delete_post(
     medias = db.query(models.Media).filter_by(post_id=post_id).all()
 
     for media in medias:
-        if media.cloud_id:  # On vérifie qu'on a bien l'ID Cloudinary
+        if media.cloud_id:  
             try:
-                # On détermine le type pour Cloudinary (image ou video)
                 resource_type = "image"
                 if media.media_type == "VIDEO":
                     resource_type = "video"
 
-                # Appel à l'API Cloudinary pour détruire le fichier
                 cloudinary.uploader.destroy(media.cloud_id, resource_type=resource_type)
-                print(f"🗑️ Média supprimé de Cloudinary: {media.cloud_id}")
             except Exception as e:
-                # On log l'erreur mais on ne bloque pas la suppression du post
                 print(f"⚠️ Erreur suppression Cloudinary pour {media.cloud_id}: {e}")
         db.delete(media)
         db.commit()
@@ -390,7 +394,6 @@ def share_post(
     )
     db.add(share)
     db.commit()
-    # 🔔 notif au destinataire du partage (DM / story / repost)
     if receiver_id != current_user.user_id:
         create_notification(
             db=db,
@@ -402,7 +405,6 @@ def share_post(
             creator_id=current_user.user_id,
         )
 
-    # 🔔 notif au propriétaire du post si c'est un REPOST public, par exemple
     if share_type == "REPOST" and post.user_id not in (None, current_user.user_id, receiver_id):
         create_notification(
             db=db,
@@ -430,11 +432,9 @@ def get_post_media(
     if not post:
         raise HTTPException(404, 'Post introuvable')
     
-    # Correction de 'user_ud' -> 'user_id'
     if post.privacy == 'PRIVATE' and post.user_id != current_user.user_id:
         raise HTTPException(403, "Post privé")
     
-    # On trie par rang dans le carrousel
     res = db.query(models.Media)\
             .filter_by(post_id=post_id)\
             .order_by(models.Media.carrousel_rank)\
@@ -457,11 +457,9 @@ def get_post_first_media(
     if not post:
         raise HTTPException(404, 'Post introuvable')
     
-    # Correction de 'user_ud' -> 'user_id'
     if post.privacy == 'PRIVATE' and post.user_id != current_user.user_id:
         raise HTTPException(403, "Post privé")
     
-    # On trie par rang dans le carrousel
     res = db.query(models.Media)\
             .filter_by(post_id=post_id)\
             .order_by(models.Media.carrousel_rank)\
@@ -513,21 +511,23 @@ def get_post(
     
 
 # ============================================================
-# 10. FEED DÉCOUVERTE (CORRIGÉ AVEC VOYAGE ET LIEU)
+# 10. FEED DÉCOUVERTE (CORRIGÉ : SÉPARATION DES TYPES)
 # ============================================================
 @router.get("/feed/discovery")
 def get_discovery_feed(
+    post_type: str = "POST",
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # CORRECTION CRUCIALE : Ajout de "WHERE post_type = :ptype" DANS LA SOUS-REQUÊTE
     sql = text("""
         SELECT 
-            p.post_id, p.post_title, p.post_description, p.publication_date,p.longitude, p.latitude,
+            p.post_id, p.post_title, p.post_description, p.publication_date, p.longitude, p.latitude, p.post_type,
             u.user_id, u.username, u.profile_picture,
             
-            t.trip_title,             -- On a besoin de ça pour l'affichage "Voyage"
-            pl.place_name,            -- On a besoin de ça pour le nom du lieu
-            c.city_name,              -- On a besoin de ça pour la ville
+            t.trip_title,             
+            pl.place_name,            
+            c.city_name,              
             
             (SELECT GROUP_CONCAT(media_url SEPARATOR ',') FROM media m WHERE m.post_id = p.post_id) as media_urls,
             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) as likes_count,
@@ -536,19 +536,21 @@ def get_discovery_feed(
 
         FROM posts p
         JOIN users u ON u.user_id = p.user_id
-        LEFT JOIN trips t ON p.trip_id = t.trip_id          -- Jointure indispensable
-        LEFT JOIN places pl ON p.place_id = pl.place_id     -- Jointure indispensable
-        LEFT JOIN cities c ON pl.city_id = c.city_id        -- Jointure indispensable
+        LEFT JOIN trips t ON p.trip_id = t.trip_id          
+        LEFT JOIN places pl ON p.place_id = pl.place_id     
+        LEFT JOIN cities c ON pl.city_id = c.city_id        
         INNER JOIN (
             SELECT user_id, MAX(publication_date) as max_date
             FROM posts
+            WHERE post_type = :ptype  -- <-- C'EST ICI QUE TOUT SE JOUE
             GROUP BY user_id
         ) latest ON p.user_id = latest.user_id AND p.publication_date = latest.max_date
         WHERE p.user_id != :uid
+        AND p.post_type = :ptype
         ORDER BY p.publication_date DESC;
     """)
 
-    res = db.execute(sql, {"uid": current_user.user_id}).mappings().all()
+    res = db.execute(sql, {"uid": current_user.user_id, "ptype": post_type}).mappings().all()
     return list(res)
 
 
@@ -558,13 +560,15 @@ def get_discovery_feed(
 @router.get("/posts/user/{target_user_id}")
 def get_posts_by_user(
     target_user_id: int,
+    post_type: str = "POST",
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     sql = text("""
         SELECT 
             p.post_id, p.post_title, p.post_description, p.publication_date, 
-            p.latitude, p.longitude, u.user_id, u.username, u.profile_picture,
+            p.latitude, p.longitude, p.post_type, 
+            u.user_id, u.username, u.profile_picture,
             t.trip_title,
             pl.place_name,
             c.city_name,
@@ -580,13 +584,15 @@ def get_posts_by_user(
         LEFT JOIN places pl ON p.place_id = pl.place_id
         LEFT JOIN cities c ON pl.city_id = c.city_id
         WHERE p.user_id = :target_id
+        AND p.post_type = :ptype
         AND (p.privacy = 'PUBLIC' OR p.user_id = :current_id)
         ORDER BY p.publication_date DESC;
     """)
 
     res = db.execute(sql, {
         "target_id": target_user_id,
-        "current_id": current_user.user_id
+        "current_id": current_user.user_id,
+        "ptype": post_type
     }).mappings().all()
     
     return list(res)

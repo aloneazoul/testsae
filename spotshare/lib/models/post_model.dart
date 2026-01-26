@@ -13,6 +13,9 @@ class PostModel {
 
   final bool isLiked;
 
+  // NOUVEAU : Type de post (POST ou MEMORY)
+  final String postType;
+
   // Champs pour le contexte (Voyage / Lieu)
   final String? tripName;
   final String? placeName;
@@ -30,6 +33,7 @@ class PostModel {
     required this.comments,
     required this.date,
     this.isLiked = false,
+    this.postType = "POST", // Par défaut
     this.tripName,
     this.placeName,
     this.cityName,
@@ -47,6 +51,7 @@ class PostModel {
     int? comments,
     DateTime? date,
     bool? isLiked,
+    String? postType,
     String? tripName,
     String? placeName,
     String? cityName,
@@ -63,6 +68,7 @@ class PostModel {
       comments: comments ?? this.comments,
       date: date ?? this.date,
       isLiked: isLiked ?? this.isLiked,
+      postType: postType ?? this.postType,
       tripName: tripName ?? this.tripName,
       placeName: placeName ?? this.placeName,
       cityName: cityName ?? this.cityName,
@@ -105,6 +111,7 @@ class PostModel {
       date: parseDate(json['publication_date']?.toString()),
 
       isLiked: (json['is_liked'] != null && json['is_liked'] > 0),
+      postType: json['post_type'] ?? "POST",
 
       tripName: json['trip_title'],
       placeName: json['place_name'],

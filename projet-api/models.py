@@ -270,6 +270,9 @@ class Post(Base):
     post_description = Column(Text)
     publication_date = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # NOUVEAU : Type de post (POST ou MEMORY)
+    post_type = Column(String(20), default="POST", nullable=False)
+
     privacy = Column(String(20), default="PUBLIC", nullable=False)  
     allow_comments_flag = Column(CHAR(1), default="Y", nullable=False)
 
@@ -288,6 +291,7 @@ class Post(Base):
     __table_args__ = (
         CheckConstraint("privacy IN ('PUBLIC', 'FRIENDS', 'PRIVATE')", name="chk_post_privacy"),
         CheckConstraint("allow_comments_flag IN ('Y', 'N')", name="chk_allow_comments"),
+        CheckConstraint("post_type IN ('POST', 'MEMORY')", name="chk_post_type"),
     )
 
     media = relationship("Media", back_populates="post")

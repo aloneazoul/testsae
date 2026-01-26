@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui'; // Nécessaire pour BackdropFilter
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:spotshare/services/trip_service.dart';
@@ -8,8 +9,8 @@ import 'package:spotshare/pages/Publication/post/gallery_picker_page.dart';
 import 'package:spotshare/widgets/bottom_navigation.dart';
 import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
 import 'package:spotshare/pages/Publication/post/map_selector_page.dart';
-import 'package:video_player/video_player.dart'; // AJOUT
-import 'package:path/path.dart' as p; // AJOUT
+import 'package:video_player/video_player.dart';
+import 'package:path/path.dart' as p;
 
 class PublishPage extends StatefulWidget {
   const PublishPage({super.key});
@@ -28,11 +29,13 @@ class _PublishPageState extends State<PublishPage> {
 
   final List<XFile> _selectedImages = [];
   bool _loading = true;
-  bool _isRecording = false; // AJOUT : État de l'enregistrement
+  bool _isRecording = false;
   final TextEditingController _captionController = TextEditingController();
 
   double? selectedLat;
   double? selectedLon;
+
+  String _postType = "POST"; // "POST" ou "MEMORY"
 
   @override
   void initState() {
@@ -59,7 +62,7 @@ class _PublishPageState extends State<PublishPage> {
         _cameraController = CameraController(
           _cameras![_selectedCameraIndex],
           ResolutionPreset.high,
-          enableAudio: true, // IMPORTANT : Activer l'audio pour les vidéos
+          enableAudio: true,
         );
 
         await _cameraController!.initialize();
@@ -87,15 +90,12 @@ class _PublishPageState extends State<PublishPage> {
       return;
     try {
       final image = await _cameraController!.takePicture();
-      setState(() {
-        _selectedImages.add(image);
-      });
+      _handleNewMedia(image);
     } catch (e) {
       debugPrint("Erreur prise de photo: $e");
     }
   }
 
-  // AJOUT : Démarrer l'enregistrement vidéo
   Future<void> _startRecording() async {
     if (_cameraController == null ||
         !_cameraController!.value.isInitialized ||
@@ -109,20 +109,28 @@ class _PublishPageState extends State<PublishPage> {
     }
   }
 
-  // AJOUT : Arrêter l'enregistrement vidéo
   Future<void> _stopRecording() async {
     if (_cameraController == null || !_cameraController!.value.isRecordingVideo)
       return;
 
     try {
       final video = await _cameraController!.stopVideoRecording();
-      setState(() {
-        _isRecording = false;
-        _selectedImages.add(video); // Ajoute la vidéo à la liste
-      });
+      setState(() => _isRecording = false);
+      _handleNewMedia(video);
     } catch (e) {
       print("Erreur stopRecording: $e");
     }
+  }
+
+  void _handleNewMedia(XFile file) {
+    setState(() {
+      if (_postType == "MEMORY") {
+        _selectedImages.clear();
+        _selectedImages.add(file);
+      } else {
+        _selectedImages.add(file);
+      }
+    });
   }
 
   Future<void> _pickFromGallery() async {
@@ -135,21 +143,32 @@ class _PublishPageState extends State<PublishPage> {
       debugPrint("Erreur lors du dispose caméra: $e");
     }
 
-    final result = await Navigator.push<List<File>?>(
+    final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const GalleryPickerPage()),
+      MaterialPageRoute(builder: (context) => GalleryPickerPage(initialPostType: _postType)),
     );
 
     if (!mounted) return;
 
-    if (result != null && result.isNotEmpty) {
+    if (result != null && result is Map) {
+      final List<File> files = result['files'] ?? [];
+      final String returnedType = result['postType'] ?? _postType;
+
       setState(() {
-        // On suppose que la galerie peut renvoyer des images et vidéos
-        _selectedImages.addAll(result.map((f) => XFile(f.path)));
+        _postType = returnedType; 
+        
+        if (_postType == "MEMORY") {
+          _selectedImages.clear();
+          if (files.isNotEmpty) {
+            _selectedImages.add(XFile(files.first.path));
+          }
+        } else {
+          _selectedImages.addAll(files.map((f) => XFile(f.path)));
+        }
       });
-    } else {
-      await _initCamera();
     }
+    
+    await _initCamera();
   }
 
   void _retake() {
@@ -194,11 +213,11 @@ class _PublishPageState extends State<PublishPage> {
                   children: [
                     const SizedBox(height: 12),
                     Container(width: 40, height: 4, color: Colors.grey[600]),
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
                       child: Text(
-                        "Dans quel voyage ajouter ce post ?",
-                        style: TextStyle(
+                        "Publier ce ${_postType == 'POST' ? 'Post' : 'Memory'}",
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -333,7 +352,6 @@ class _PublishPageState extends State<PublishPage> {
       context,
     ).showSnackBar(const SnackBar(content: Text("Envoi en cours...")));
 
-    // Conversion XFile -> File
     final files = _selectedImages.map((x) => File(x.path)).toList();
 
     final success = await _postService.createCarouselPost(
@@ -342,6 +360,7 @@ class _PublishPageState extends State<PublishPage> {
       caption: _captionController.text,
       latitude: selectedLat!,
       longitude: selectedLon!,
+      postType: _postType,
     );
 
     if (!mounted) return;
@@ -398,7 +417,6 @@ class _PublishPageState extends State<PublishPage> {
         else
           Container(color: Colors.black),
 
-        // AJOUT : Indicateur d'enregistrement
         if (_isRecording)
           Positioned(
             top: 40,
@@ -419,6 +437,36 @@ class _PublishPageState extends State<PublishPage> {
             ),
           ),
 
+        // SÉLECTEUR TYPE POST / MEMORY (Glassmorphism + Position haute)
+        Positioned(
+          bottom: 150, // Remonté pour dégager la zone de navigation
+          left: 0,
+          right: 0,
+          child: Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTypeSelector("POST"),
+                      _buildTypeSelector("MEMORY"),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
         Positioned(
           bottom: 60,
           left: 0,
@@ -436,7 +484,6 @@ class _PublishPageState extends State<PublishPage> {
               else
                 const SizedBox(width: 56),
 
-              // BOUTON DE CAPTURE MODIFIÉ
               GestureDetector(
                 onLongPress: _startRecording,
                 onLongPressUp: _stopRecording,
@@ -472,6 +519,35 @@ class _PublishPageState extends State<PublishPage> {
     );
   }
 
+  Widget _buildTypeSelector(String type) {
+    final isSelected = _postType == type;
+    return GestureDetector(
+      onTap: () {
+        if (_postType != type) {
+          setState(() => _postType = type);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+        decoration: isSelected 
+          ? BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(25),
+            )
+          : null,
+        child: Text(
+          type,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white70,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPreviewView() {
     if (_selectedImages.isEmpty) return const SizedBox();
 
@@ -489,53 +565,86 @@ class _PublishPageState extends State<PublishPage> {
               return Stack(
                 children: [
                   SizedBox.expand(
-                    // AJOUT : Choix entre Image et VideoPlayer
                     child: isVideo
                         ? _VideoPreviewItem(file: File(file.path))
                         : Image.file(File(file.path), fit: BoxFit.cover),
                   ),
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 30,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _selectedImages.removeAt(index);
-                        });
-                      },
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 16,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Text(
-                        "${index + 1}/${_selectedImages.length}",
-                        style: const TextStyle(
+                  
+                  // CORRECTION : Croix supprimée si c'est la dernière photo
+                  if (_selectedImages.length > 1)
+                    Positioned(
+                      top: 16,
+                      right: 16,
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.close,
                           color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          backgroundColor: Colors.black38,
+                          size: 30,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _selectedImages.removeAt(index);
+                            if (_selectedImages.isEmpty) _retake();
+                          });
+                        },
+                      ),
+                    ),
+                    
+                  if (_selectedImages.length > 1)
+                    Positioned(
+                      bottom: 16,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            "${index + 1}/${_selectedImages.length}",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               );
             },
           ),
         ),
+        
+        // Formulaire en bas
         Container(
           padding: const EdgeInsets.all(20),
           color: Colors.black,
           child: Column(
             children: [
+              // Indicateur visuel du mode (Glassmorphism aussi ici pour cohérence)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: Colors.grey.withOpacity(0.3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildTypeSelector("POST"),
+                        _buildTypeSelector("MEMORY"),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 15),
+
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey[850],
@@ -609,7 +718,6 @@ class _PublishPageState extends State<PublishPage> {
   }
 }
 
-// AJOUT : Widget pour prévisualiser la vidéo dans le carrousel
 class _VideoPreviewItem extends StatefulWidget {
   final File file;
   const _VideoPreviewItem({required this.file});
@@ -629,7 +737,7 @@ class _VideoPreviewItemState extends State<_VideoPreviewItem> {
       ..initialize().then((_) {
         setState(() => _initialized = true);
         _controller.setLooping(true);
-        _controller.play(); // Lecture auto
+        _controller.play(); 
       });
   }
 

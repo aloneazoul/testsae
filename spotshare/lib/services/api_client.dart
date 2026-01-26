@@ -9,7 +9,8 @@ class ApiClient {
   ApiClient._internal();
 
   String get baseUrl {
-    return "https://spotshareapi.fr";
+    //return "https://spotshareapi.fr";
+    return "http://127.0.0.1:8001";
   }
 
   Future<Map<String, String>> _getHeaders() async {
