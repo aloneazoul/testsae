@@ -16,6 +16,7 @@ router = APIRouter(tags=["Comments"])
 def list_comments(
     post_id: int,
     db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user), 
 ):
     # On fait une jointure entre Comment et User pour récupérer pseudo + avatar
     results = (
@@ -26,18 +27,26 @@ def list_comments(
         .all()
     )
 
-    # On construit une liste personnalisée avec les infos des deux tables
     comments_list = []
     for comment, user in results:
+        likes_count = db.query(models.CommentLike).filter(models.CommentLike.comment_id == comment.comment_id).count()
+        
+        is_liked = db.query(models.CommentLike).filter(
+            models.CommentLike.comment_id == comment.comment_id,
+            models.CommentLike.user_id == current_user.user_id
+        ).first() is not None
+
         comments_list.append({
             "comment_id": comment.comment_id,
             "post_id": comment.post_id,
             "user_id": comment.user_id,
             "content": comment.content,
             "created_at": comment.creation_date,
-            # C'est ici qu'on ajoute les infos manquantes pour l'affichage :
             "username": user.username,
-            "profile_picture": user.profile_picture
+            "profile_picture": user.profile_picture,
+            "parent_comment_id": comment.parent_comment_id, # AJOUT CRUCIAL
+            "likes_count": likes_count,
+            "is_liked": is_liked
         })
     
     return comments_list
@@ -74,7 +83,6 @@ def create_comment(
     db.commit()
     db.refresh(comment)
     
-    # 🔔 notif au propriétaire du post
     if post.user_id != current_user.user_id:
         create_notification(
             db=db,
@@ -86,7 +94,6 @@ def create_comment(
             creator_id=current_user.user_id,
         )
 
-    # 🔔 si c'est une réponse à un commentaire → notif à l'auteur du parent
     if parent_comment_id is not None and parent.user_id not in (None, current_user.user_id, post.user_id):
         create_notification(
             db=db,
@@ -118,3 +125,62 @@ def delete_comment(
     db.commit()
 
     return {"message": "Commentaire supprimé"}
+
+
+@router.post("/comments/{comment_id}/like")
+def like_comment(
+    comment_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    comment = db.query(models.Comment).filter_by(comment_id=comment_id).first()
+    if not comment:
+        raise HTTPException(404, "Commentaire introuvable")
+
+    existing_like = db.query(models.CommentLike).filter_by(
+        comment_id=comment_id, 
+        user_id=current_user.user_id
+    ).first()
+
+    if existing_like:
+        return {"message": "Déjà liké"}
+
+    new_like = models.CommentLike(
+        comment_id=comment_id, 
+        user_id=current_user.user_id
+    )
+    db.add(new_like)
+    db.commit()
+
+    if comment.user_id != current_user.user_id:
+        create_notification(
+            db=db,
+            target_user_id=comment.user_id,
+            notif_type="LIKE",
+            notif_text=f"{current_user.username} a aimé votre commentaire",
+            related_id=comment.comment_id,
+            related_table="comments",
+            creator_id=current_user.user_id,
+        )
+
+    return {"message": "Commentaire liké"}
+
+
+@router.delete("/comments/{comment_id}/like")
+def unlike_comment(
+    comment_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    like = db.query(models.CommentLike).filter_by(
+        comment_id=comment_id, 
+        user_id=current_user.user_id
+    ).first()
+
+    if not like:
+        raise HTTPException(404, "Like introuvable")
+
+    db.delete(like)
+    db.commit()
+
+    return {"message": "Like supprimé"}

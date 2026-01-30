@@ -627,3 +627,12 @@ class MapFeed(Base):
     country_code = Column(String(3))
 
     likes_count = Column(Integer)
+
+# NOUVEAU : Table pour liker les commentaires
+class CommentLike(Base):
+    __tablename__ = "comment_likes"
+    
+    comment_id = Column(Integer, ForeignKey("comments.comment_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    
+    liked_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

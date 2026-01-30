@@ -1,8 +1,20 @@
-import 'package:spotshare/services/api_client.dart';
+import 'dart:async';
 import 'package:spotshare/models/comment_model.dart';
+import 'package:spotshare/services/api_client.dart';
 
 class CommentService {
   final ApiClient _client = ApiClient();
+
+  // --- LOGIQUE RADIO (STREAM) ---
+  static final StreamController<CommentModel> _commentUpdateController =
+      StreamController.broadcast();
+
+  static Stream<CommentModel> get commentUpdates =>
+      _commentUpdateController.stream;
+
+  static void notifyCommentUpdated(CommentModel comment) {
+    _commentUpdateController.add(comment);
+  }
 
   Future<List<CommentModel>> getComments(String postId) async {
     try {
@@ -17,17 +29,41 @@ class CommentService {
     }
   }
 
-  Future<bool> postComment(String postId, String content) async {
+  Future<bool> postComment(String postId, String content, {String? parentCommentId}) async {
     try {
-      final response = await _client.postForm("/posts/$postId/comments", {
+      final body = {
         "content": content,
-      });
-      if (response != null) {
-        return true;
+      };
+      if (parentCommentId != null) {
+        body["parent_comment_id"] = parentCommentId;
       }
-      return false;
+
+      final response = await _client.postForm("/posts/$postId/comments", body);
+      return response != null;
     } catch (e) {
       print("Erreur postComment: $e");
+      return false;
+    }
+  }
+
+  // --- LIKE / UNLIKE ---
+
+  Future<bool> likeComment(String commentId) async {
+    try {
+      final response = await _client.post("/comments/$commentId/like", {});
+      return response != null;
+    } catch (e) {
+      print("Erreur likeComment: $e");
+      return false;
+    }
+  }
+
+  Future<bool> unlikeComment(String commentId) async {
+    try {
+      final response = await _client.delete("/comments/$commentId/like");
+      return response != null;
+    } catch (e) {
+      print("Erreur unlikeComment: $e");
       return false;
     }
   }

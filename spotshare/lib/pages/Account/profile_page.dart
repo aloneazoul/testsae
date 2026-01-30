@@ -7,11 +7,10 @@ import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
 import 'package:spotshare/pages/Account/post_feed_page.dart';
 import 'package:spotshare/utils/constants.dart';
-import 'login_page.dart';
+import 'package:spotshare/pages/Account/login_page.dart';
 import 'package:spotshare/pages/Account/trip_map_overlay.dart';
 import 'package:spotshare/pages/Chat/chat_page.dart';
 import 'package:spotshare/models/conversation.dart';
-// AJOUT : Import du widget grid item
 import 'package:spotshare/widgets/post_grid_item.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -30,8 +29,11 @@ class _ProfilePageState extends State<ProfilePage>
 
   Map<String, dynamic>? _userData;
   List<dynamic> _myTrips = [];
+  
   List<dynamic> _myPosts = [];
+  List<dynamic> _myMemories = [];
 
+  bool _viewingMemories = false;
   bool _loading = true;
   bool _isFollowing = false;
   bool _followsMe = false;
@@ -50,24 +52,30 @@ class _ProfilePageState extends State<ProfilePage>
 
     _postUpdateSubscription = PostService.postUpdates.listen((updatedPost) {
       if (!mounted) return;
-      final index = _myPosts.indexWhere(
-        (p) => p['post_id'].toString() == updatedPost.id,
-      );
-      if (index != -1) {
-        setState(() {
-          _myPosts[index]['is_liked'] = updatedPost.isLiked ? 1 : 0;
-          _myPosts[index]['likes_count'] = updatedPost.likes;
-          _myPosts[index]['comments_count'] = updatedPost.comments;
-        });
-      }
+      _updatePostInList(_myPosts, updatedPost);
+      _updatePostInList(_myMemories, updatedPost);
     });
 
     _postDeleteSubscription = PostService.postDeletions.listen((deletedId) {
       if (!mounted) return;
       setState(() {
         _myPosts.removeWhere((p) => p['post_id'].toString() == deletedId);
+        _myMemories.removeWhere((p) => p['post_id'].toString() == deletedId);
       });
     });
+  }
+
+  void _updatePostInList(List<dynamic> list, dynamic updatedPost) {
+    final index = list.indexWhere(
+      (p) => p['post_id'].toString() == updatedPost.id,
+    );
+    if (index != -1) {
+      setState(() {
+        list[index]['is_liked'] = updatedPost.isLiked ? 1 : 0;
+        list[index]['likes_count'] = updatedPost.likes;
+        list[index]['comments_count'] = updatedPost.comments;
+      });
+    }
   }
 
   @override
@@ -78,34 +86,49 @@ class _ProfilePageState extends State<ProfilePage>
     super.dispose();
   }
 
+  String? _getUserIdFromData(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    if (data.containsKey('user_id')) return data['user_id'].toString();
+    if (data.containsKey('id')) return data['id'].toString();
+    return null;
+  }
+
   Future<void> _loadAllData() async {
     setState(() => _loading = true);
     try {
-      Future<Map<String, dynamic>?> profileFuture;
-      Future<List<dynamic>> tripsFuture;
-      Future<List<dynamic>> postsFuture;
+      String targetId;
 
       if (isMyProfile) {
-        profileFuture = getMyProfile();
-        tripsFuture = _tripService.getMyTrips();
-        postsFuture = _postService.getPosts();
+        final profile = await getMyProfile();
+        
+        if (profile == null) {
+          if (mounted) _logout();
+          return;
+        }
+
+        _userData = profile;
+        targetId = _getUserIdFromData(_userData) ?? "";
       } else {
-        profileFuture = getUserById(widget.userId!);
-        tripsFuture = _tripService.getTripsByUser(widget.userId!);
-        postsFuture = _postService.getPostsByUser(widget.userId!);
+        targetId = widget.userId!;
       }
 
-      final results = await Future.wait([
-        profileFuture,
-        tripsFuture,
-        postsFuture,
+      if (targetId.isEmpty || targetId == "null") {
+        throw Exception("ID utilisateur invalide");
+      }
+
+      final futures = await Future.wait([
+        !isMyProfile ? getUserById(targetId) : Future.value(_userData),
+        _tripService.getTripsByUser(targetId),
+        _postService.getPostsByUser(targetId, type: "POST"),
+        _postService.getPostsByUser(targetId, type: "MEMORY"),
       ]);
 
       if (mounted) {
         setState(() {
-          _userData = results[0] as Map<String, dynamic>?;
-          _myTrips = results[1] as List<dynamic>;
-          _myPosts = results[2] as List<dynamic>;
+          _userData = futures[0] as Map<String, dynamic>?;
+          _myTrips = futures[1] as List<dynamic>;
+          _myPosts = futures[2] as List<dynamic>;
+          _myMemories = futures[3] as List<dynamic>;
 
           if (_userData != null) {
             _isFollowing = _userData!['is_following'] == true;
@@ -117,7 +140,9 @@ class _ProfilePageState extends State<ProfilePage>
       }
     } catch (e) {
       print("Erreur chargement profil: $e");
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -161,12 +186,16 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   void _openTripOverlay(dynamic trip) {
+    String myId = "0";
+    if (_userData != null) {
+      myId = _getUserIdFromData(_userData) ?? "0";
+    }
+
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierDismissible: true,
         pageBuilder: (context, animation, secondaryAnimation) {
-          final String myId = _userData!['user_id']?.toString() ?? "0";
           return TripMapOverlay(
             trip: trip,
             onClose: () => Navigator.of(context).pop(),
@@ -201,10 +230,10 @@ class _ProfilePageState extends State<ProfilePage>
     String pseudo =
         _userData!['username'] ?? _userData!['pseudo'] ?? 'Utilisateur';
     String bio = _userData!['bio'] ?? '';
-
     String? avatarUrl = _userData!['profile_picture'] ?? _userData!['img'];
 
-    String nbPosts = (_userData!['posts_count'] ?? _myPosts.length).toString();
+    int totalPosts = _myPosts.length + _myMemories.length;
+    String nbPosts = (_userData!['posts_count'] ?? totalPosts).toString();
     String nbAbonnes = (_userData!['followers_count'] ?? 0).toString();
     String nbSuivis = (_userData!['following_count'] ?? 0).toString();
 
@@ -424,7 +453,7 @@ class _ProfilePageState extends State<ProfilePage>
     return TabBarView(
       controller: _tabController,
       children: <Widget>[
-        _buildPostsGrid(),
+        _buildPublicationTab(),
         _buildTripsGrid(),
         const Center(
           child: Text(
@@ -448,27 +477,72 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // --- CORRECTION ICI ---
-  // On utilise PostGridItem au lieu de Image.network pour gérer les vidéos
+  Widget _buildPublicationTab() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildFilterButton("Posts", !_viewingMemories),
+              const SizedBox(width: 20),
+              Container(width: 1, height: 15, color: Colors.grey[800]),
+              const SizedBox(width: 20),
+              _buildFilterButton("Memories", _viewingMemories),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _buildPostsGrid(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterButton(String label, bool isActive) {
+    return GestureDetector(
+      onTap: () {
+        if (isActive) return;
+        setState(() {
+          _viewingMemories = label == "Memories";
+        });
+      },
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isActive ? Colors.white : Colors.grey,
+          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
   Widget _buildPostsGrid() {
-    if (_myPosts.isEmpty) {
-      return const Center(
+    final displayList = _viewingMemories ? _myMemories : _myPosts;
+    final emptyMessage = _viewingMemories ? "Aucun memory." : "Aucun post.";
+
+    if (displayList.isEmpty) {
+      return Center(
         child: Text(
-          "Aucune publication.",
-          style: TextStyle(color: Colors.grey),
+          emptyMessage,
+          style: const TextStyle(color: Colors.grey),
         ),
       );
     }
+    
     return GridView.builder(
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 2.0,
         mainAxisSpacing: 2.0,
+        childAspectRatio: 1.0, 
       ),
-      itemCount: _myPosts.length,
+      itemCount: displayList.length,
       itemBuilder: (BuildContext context, int index) {
-        final post = _myPosts[index];
+        final post = displayList[index];
 
         String? imageUrl;
         if (post['media_urls'] != null && post['media_urls'].isNotEmpty) {
@@ -489,25 +563,25 @@ class _ProfilePageState extends State<ProfilePage>
               isMultiple = snapshot.data!.length > 1;
             }
 
-            // Utilisation du widget corrigé
             return PostGridItem(
               imageUrl: imageUrl ?? "",
               isMultiple: isMultiple,
               onTap: () async {
-                final String myId = isMyProfile
-                    ? (_userData!['id']?.toString() ??
-                          _userData!['user_id']?.toString() ??
-                          "0")
-                    : "0";
+                String myId = "0";
+                if (_userData != null) {
+                  myId = _getUserIdFromData(_userData) ?? "0";
+                }
 
                 final bool? shouldRefresh = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => PostFeedPage(
-                      postsRaw: _myPosts,
+                      postsRaw: displayList,
                       userData: _userData!,
                       initialPostId: post['post_id'].toString(),
                       currentLoggedUserId: myId,
+                      // AJOUT CRITIQUE : On passe explicitement le type de feed
+                      isMemoryFeed: _viewingMemories,
                     ),
                   ),
                 );
