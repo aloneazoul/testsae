@@ -1,9 +1,9 @@
-# routers/stories.py
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 from sqlalchemy import text
+from datetime import datetime, timezone, timedelta
+import cloudinary
+import cloudinary.uploader
 
 import database
 import models
@@ -11,7 +11,132 @@ from .auth import get_current_user
 
 router = APIRouter(tags=["Stories"])
 
+# ============================================================
+# 1. CRÉER UNE STORY
+# ============================================================
+@router.post("/stories")
+def create_story(
+    file: UploadFile = File(...),
+    caption: str = Form(None),
+    latitude: str = Form(None),
+    longitude: str = Form(None),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1. Upload vers Cloudinary
+    try:
+        upload = cloudinary.uploader.upload(
+            file.file,
+            folder=f"stories/{current_user.user_id}/",
+            resource_type="auto"
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Erreur Cloudinary: {e}")
 
+    media_type = "IMAGE"
+    if upload.get("resource_type") == "video":
+        media_type = "VIDEO"
+
+    # 2. Calcul de l'expiration (24h)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=24)
+
+    # 3. Enregistrement en base
+    story = models.Story(
+        user_id=current_user.user_id,
+        media_url=upload["secure_url"],
+        thumbnail_url=upload.get("thumbnail_url"),
+        media_type=media_type,
+        caption=caption,
+        latitude=latitude,
+        longitude=longitude,
+        created_at=now,
+        expires_at=expires_at,
+        view_count=0
+    )
+
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    return {"message": "Story publiée", "story_id": story.story_id, "url": story.media_url}
+
+
+# ============================================================
+# 2. FEED DES STORIES
+# ============================================================
+@router.get("/stories/feed")
+def get_stories_feed(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+
+    # Récupérer les stories actives des amis et de soi-même
+    sql = text("""
+        SELECT 
+            s.story_id, s.media_url, s.media_type, s.created_at, s.caption, s.latitude, s.longitude,
+            u.user_id, u.username, u.profile_picture,
+            CASE WHEN sv.viewed_at IS NOT NULL THEN 1 ELSE 0 END as is_viewed
+        FROM stories s
+        JOIN users u ON u.user_id = s.user_id
+        LEFT JOIN story_views sv ON s.story_id = sv.story_id AND sv.user_id = :me
+        WHERE s.expires_at > :now
+        AND (
+            s.user_id = :me
+            OR s.user_id IN (
+                SELECT CASE WHEN f.user_id = :me THEN f.user_id_friend ELSE f.user_id END
+                FROM friends f
+                WHERE f.status = 'ACCEPTED' AND (f.user_id = :me OR f.user_id_friend = :me)
+            )
+        )
+        ORDER BY s.created_at ASC
+    """)
+
+    rows = db.execute(sql, {"me": current_user.user_id, "now": now}).mappings().all()
+
+    grouped_stories = {}
+
+    for row in rows:
+        uid = row["user_id"]
+        is_mine = (uid == current_user.user_id)
+
+        if uid not in grouped_stories:
+            grouped_stories[uid] = {
+                "user_id": uid,
+                "username": row["username"],
+                "profile_picture": row["profile_picture"],
+                "is_mine": is_mine,
+                "all_seen": True,
+                "stories": []
+            }
+
+        story_data = {
+            "story_id": row["story_id"],
+            "media_url": row["media_url"],
+            "media_type": row["media_type"],
+            "date": row["created_at"],
+            "caption": row["caption"],
+            "latitude": row["latitude"],
+            "longitude": row["longitude"],
+            "is_viewed": bool(row["is_viewed"])
+        }
+        
+        if not story_data["is_viewed"] and not is_mine:
+            grouped_stories[uid]["all_seen"] = False
+
+        grouped_stories[uid]["stories"].append(story_data)
+
+    result = list(grouped_stories.values())
+    # Tri : Moi d'abord, puis les autres
+    result.sort(key=lambda x: (not x['is_mine'], x['all_seen'])) 
+
+    return result
+
+
+# ============================================================
+# 3. MARQUER COMME VUE
+# ============================================================
 @router.post("/stories/{story_id}/view")
 def view_story(
     story_id: int,
@@ -22,30 +147,27 @@ def view_story(
     if not story:
         raise HTTPException(404, "Story introuvable")
 
-    # Vérifier si déjà vue
     existing = db.query(models.StoryView).filter_by(
         story_id=story_id,
         user_id=current_user.user_id
     ).first()
 
-    if existing:
-        # on met éventuellement à jour la date
-        existing.viewed_at = datetime.now(timezone.utc)
-    else:
+    if not existing:
         sv = models.StoryView(
             story_id=story_id,
             user_id=current_user.user_id,
             viewed_at=datetime.now(timezone.utc),
         )
         db.add(sv)
+        story.view_count = (story.view_count or 0) + 1
+        db.commit()
 
-    # +1 au compteur (option simple, tu peux aussi le recalculer avec COUNT)
-    story.view_count = (story.view_count or 0) + 1
-
-    db.commit()
     return {"message": "Story vue"}
 
 
+# ============================================================
+# 4. LISTE DES VUES (Pour mes stories)
+# ============================================================
 @router.get("/stories/{story_id}/views")
 def list_story_views(
     story_id: int,
@@ -56,7 +178,6 @@ def list_story_views(
     if not story:
         raise HTTPException(404, "Story introuvable")
 
-    # Optionnel : vérifier que current_user a le droit de voir qui a vu (ex: owner)
     if story.user_id != current_user.user_id:
         raise HTTPException(403, "Tu ne peux voir les vues que de tes stories")
 
@@ -69,3 +190,77 @@ def list_story_views(
     """)
     res = db.execute(sql, {"sid": story_id}).mappings().all()
     return list(res)
+
+# ============================================================
+# 5. SUPPRIMER UNE STORY
+# ============================================================
+@router.delete("/stories/{story_id}")
+def delete_story(
+    story_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    story = db.query(models.Story).filter(models.Story.story_id == story_id).first()
+    
+    if not story:
+        raise HTTPException(404, "Story introuvable")
+        
+    if story.user_id != current_user.user_id:
+        raise HTTPException(403, "Vous ne pouvez supprimer que vos propres stories")
+
+    db.delete(story)
+    db.commit()
+
+    return {"message": "Story supprimée"}
+
+
+# ============================================================
+# 6. RÉCUPÉRER LES STORIES D'UN UTILISATEUR SPÉCIFIQUE (Profil)
+# ============================================================
+@router.get("/stories/user/{target_user_id}")
+def get_user_stories(
+    target_user_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+
+    # Récupère les stories actives de cet utilisateur
+    # Note: On pourrait ajouter une vérif "Sont-ils amis ?" ici si le profil est privé
+    sql = text("""
+        SELECT 
+            s.story_id, s.media_url, s.media_type, s.created_at, s.caption, s.latitude, s.longitude,
+            CASE WHEN sv.viewed_at IS NOT NULL THEN 1 ELSE 0 END as is_viewed
+        FROM stories s
+        LEFT JOIN story_views sv ON s.story_id = sv.story_id AND sv.user_id = :me
+        WHERE s.user_id = :target
+        AND s.expires_at > :now
+        ORDER BY s.created_at ASC
+    """)
+
+    rows = db.execute(sql, {"me": current_user.user_id, "target": target_user_id, "now": now}).mappings().all()
+
+    stories = []
+    all_seen = True
+
+    for row in rows:
+        is_viewed = bool(row["is_viewed"])
+        if not is_viewed:
+            all_seen = False
+            
+        stories.append({
+            "story_id": row["story_id"],
+            "media_url": row["media_url"],
+            "media_type": row["media_type"],
+            "date": row["created_at"],
+            "caption": row["caption"],
+            "latitude": row["latitude"],
+            "longitude": row["longitude"],
+            "is_viewed": is_viewed
+        })
+
+    return {
+        "user_id": target_user_id,
+        "all_seen": all_seen, # Utile pour savoir si on met l'anneau gris ou vert
+        "stories": stories
+    }

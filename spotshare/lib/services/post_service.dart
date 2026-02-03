@@ -8,7 +8,7 @@ import 'package:spotshare/models/post_model.dart';
 import 'package:spotshare/services/api_client.dart';
 import 'package:spotshare/services/storage_service.dart';
 import 'package:path/path.dart' as p;
-import 'package:video_compress/video_compress.dart'; // Import nécessaire
+import 'package:video_compress/video_compress.dart';
 
 class PostService {
   final ApiClient _client = ApiClient();
@@ -67,10 +67,8 @@ class PostService {
     }
   }
 
-  // MODIFIÉ : Ajout du paramètre type (optionnel, par défaut POST)
   Future<List<dynamic>> getFeed({String type = "POST"}) async {
     try {
-      // On passe le post_type en paramètre GET
       final response = await _client.get("/posts/feed?post_type=$type");
       if (response != null && response is List) return response;
       return [];
@@ -80,7 +78,7 @@ class PostService {
     }
   }
 
-  Future<List<dynamic>> getMediaTripPosts(int postId) async {
+  Future<List<dynamic>> getMediaTripPosts(dynamic postId) async {
     try {
       final response = await _client.get("/posts/$postId/media");
       if (response != null && response is List) return response;
@@ -113,14 +111,13 @@ class PostService {
     }
   }
 
-  // MODIFIÉ : Ajout du paramètre postType
   Future<bool> createCarouselPost({
     required int tripId,
     required List<File> imageFiles,
     String caption = "",
     required double latitude,
     required double longitude,
-    String postType = "POST", // NOUVEAU
+    String postType = "POST",
   }) async {
     final token = await StorageService.getToken();
     if (token == null) return false;
@@ -139,7 +136,7 @@ class PostService {
           "trip_id": tripId.toString(),
           "post_description": caption,
           "privacy": "PUBLIC",
-          "post_type": postType, // Transmission à l'API
+          "post_type": postType,
           "allow_comments": "true",
           "latitude": latitude.toString(),
           "longitude": longitude.toString(),
@@ -164,7 +161,6 @@ class PostService {
     for (var file in imageFiles) {
       File fileToSend;
       
-      // Détection : Vidéo vs Image
       final ext = p.extension(file.path).toLowerCase();
       if (['.mp4', '.mov', '.avi', '.mkv'].contains(ext)) {
          fileToSend = await _compressVideo(file);
@@ -211,15 +207,13 @@ class PostService {
     return result != null ? File(result.path) : file;
   }
 
-  // MODIFIÉ : Compression vidéo HD pour meilleure qualité
   Future<File> _compressVideo(File file) async {
     try {
-      // On compresse seulement si > 50 Mo pour garder la qualité originale des petites vidéos
       if (await file.length() < 50 * 1024 * 1024) return file;
 
       final info = await VideoCompress.compressVideo(
         file.path,
-        quality: VideoQuality.Res1280x720Quality, // HD 720p (nettement mieux que Medium)
+        quality: VideoQuality.Res1280x720Quality,
         deleteOrigin: false,
         includeAudio: true,
       );
@@ -234,20 +228,19 @@ class PostService {
     }
   }
 
-  Future<bool> deletePost(int postId) async {
+  // --- CORRECTION : CHANGEMENT TYPE INT -> STRING ---
+  Future<bool> deletePost(String postId) async {
     try {
       await _client.delete("/posts/$postId");
-      notifyPostDeleted(postId.toString());
+      notifyPostDeleted(postId);
       return true;
     } catch (e) {
       return false;
     }
   }
 
-  // MODIFIÉ : Ajout du paramètre type
   Future<List<dynamic>> getDiscoveryFeed({String type = "POST"}) async {
     final token = await StorageService.getToken();
-    // On ajoute le paramètre à l'URL
     final url = "${_client.baseUrl}/feed/discovery?post_type=$type";
 
     try {
@@ -268,7 +261,6 @@ class PostService {
     return [];
   }
 
-  // MODIFIÉ : Ajout du paramètre type
   Future<List<dynamic>> getPostsByUser(String userId, {String type = "POST"}) async {
     try {
       final response = await _client.get("/posts/user/$userId?post_type=$type");

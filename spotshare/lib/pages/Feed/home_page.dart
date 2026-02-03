@@ -8,6 +8,8 @@ import 'package:spotshare/services/story_service.dart';
 import 'package:spotshare/widgets/post_card.dart';
 import 'package:spotshare/widgets/stories_bar.dart';
 import 'package:spotshare/widgets/reel_item.dart';
+import 'package:spotshare/pages/Publication/post/Publication_page.dart';
+import 'package:spotshare/pages/Feed/story_player_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -24,13 +26,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
   
   List<PostModel> _posts = [];
   List<PostModel> _memories = [];
-  List<Map<String, dynamic>> _stories = [];
+  List<dynamic> _stories = [];
 
   bool _isLoading = true;
   StreamSubscription? _postSubscription;
   int _currentReelIndex = 0;
-  
-  // État pour savoir si on est sur l'onglet Feed (0) ou Memories (1)
   int _currentTabIndex = 0;
 
   @override
@@ -38,7 +38,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     
-    // Écouteur pour changer le style du header quand on change d'onglet
     _tabController.addListener(() {
       if (_tabController.indexIsChanging || _tabController.index != _currentTabIndex) {
         setState(() {
@@ -82,7 +81,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
       final feedFuture = _postService.getDiscoveryFeed(type: "POST");
       final memoriesFuture = _postService.getDiscoveryFeed(type: "MEMORY");
       final storiesFuture = _storyService.getStoriesFeed();
-      final myProfileFuture = getMyProfile();
+      final myProfileFuture = getMyProfile(); 
 
       final results = await Future.wait([
         feedFuture,
@@ -95,23 +94,36 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
         setState(() {
           _posts = (results[0] as List).map((json) => PostModel.fromJson(json)).where((p) => p.postType == "POST").toList();
           _memories = (results[1] as List).map((json) => PostModel.fromJson(json)).where((p) => p.postType == "MEMORY").toList();
+          
+          _stories = results[2] as List<dynamic>;
 
-          _stories.clear();
-          String myPic = "";
-          final myProfile = results[3] as Map<String, dynamic>?;
-          if (myProfile != null) {
-            myPic = myProfile['profile_picture'] ?? myProfile['img'] ?? "";
+          bool meInList = false;
+          for (var s in _stories) {
+            if (s['is_mine'] == true) {
+              meInList = true;
+              break;
+            }
           }
-          _stories.add({"name": "Moi", "image": myPic, "is_mine": true});
 
-          for (var s in (results[2] as List)) {
-            _stories.add({
-              "name": s['username'] ?? "Ami",
-              "image": s['profile_picture'] ?? "",
-              "is_mine": false,
-              "story_id": s['story_id'],
-            });
+          if (!meInList) {
+             final myProfile = results[3] as Map<String, dynamic>?;
+             String myPic = "";
+             String myName = "Moi";
+             if (myProfile != null) {
+               myPic = myProfile['profile_picture'] ?? myProfile['img'] ?? "";
+               myName = myProfile['username'] ?? "Moi";
+             }
+             
+             _stories.insert(0, {
+               "user_id": 0,
+               "username": myName,
+               "profile_picture": myPic,
+               "is_mine": true,
+               "all_seen": true,
+               "stories": []
+             });
           }
+
           _isLoading = false;
         });
       }
@@ -121,36 +133,54 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
     }
   }
 
+  void _goToCreateStory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PublishPage(returnIndex: 1),
+      ),
+    ).then((_) => refreshFeed());
+  }
+
+  void _openStory(List<dynamic> userStories, int index, Map<String, dynamic> groupData) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StoryPlayerPage(
+          stories: userStories, 
+          initialIndex: index,
+          username: groupData['username'] ?? "Utilisateur",
+          userImage: groupData['profile_picture'] ?? "",
+          isMine: groupData['is_mine'] == true,
+        ),
+      ),
+    ).then((_) => refreshFeed()); 
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. LE CONTENU (TabBarView)
           TabBarView(
             controller: _tabController,
             children: [
-              _buildClassicFeed(), // Index 0
-              _buildReelsFeed(),   // Index 1
+              _buildClassicFeed(),
+              _buildReelsFeed(),
             ],
           ),
 
-          // 2. LE HEADER FLOTTANT (Dynamique)
           Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: Container(
-              // CORRECTION : Fond NOIR si Feed, TRANSPARENT si Memories
-              // Cela couvre la barre d'état (heure/batterie)
               color: _currentTabIndex == 0 ? Colors.black : Colors.transparent,
-              
               child: SafeArea(
                 bottom: false,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  // Dégradé uniquement si on est en mode Memories (pour lisibilité)
                   decoration: _currentTabIndex == 1 
                     ? const BoxDecoration(
                         gradient: LinearGradient(
@@ -159,15 +189,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
                           end: Alignment.bottomCenter,
                         ),
                       )
-                    : null, // Pas de dégradé en mode Feed (déjà fond noir)
-                  
+                    : null,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // A. Espace vide à gauche pour équilibrer
                       const SizedBox(width: 28), 
-
-                      // B. Les Onglets au Centre
                       Expanded(
                         child: Center(
                           child: TabBar(
@@ -191,8 +217,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
                           ),
                         ),
                       ),
-
-                      // C. La Loupe à Droite
                       GestureDetector(
                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchPage())),
                         child: const Icon(
@@ -213,20 +237,35 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
     );
   }
 
-  // Onglet 1 : Feed Classique
   Widget _buildClassicFeed() {
     return RefreshIndicator(
       onRefresh: refreshFeed,
       color: Colors.white,
       backgroundColor: Colors.grey[900],
       child: ListView(
-        // Padding important en haut : Hauteur estimée du header + SafeArea
-        // On met 120 pour être sûr que le premier item (Stories) ne soit pas caché
         padding: const EdgeInsets.only(top: 120, bottom: 80), 
         children: [
           StoriesBar(
             stories: _stories,
-            onAddStoryTap: () => print("Add Story"),
+            onAddStoryTap: _goToCreateStory,
+            onStoryTap: (index) {
+                final group = _stories[index];
+                final bool isMine = group['is_mine'] == true;
+                final List<dynamic> stories = group['stories'] ?? [];
+
+                if (isMine && stories.isEmpty) {
+                  _goToCreateStory();
+                } else if (stories.isNotEmpty) {
+                  int firstUnseenIndex = 0;
+                  for(int i=0; i<stories.length; i++) {
+                    if(stories[i]['is_viewed'] == false) {
+                      firstUnseenIndex = i;
+                      break;
+                    }
+                  }
+                  _openStory(stories, firstUnseenIndex, group);
+                }
+            },
           ),
           
           const Divider(color: Colors.white10, height: 20),
@@ -236,18 +275,33 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin 
           else if (_posts.isEmpty)
              const Padding(padding: EdgeInsets.all(50), child: Center(child: Text("Aucun post.", style: TextStyle(color: Colors.grey))))
           else
-            ..._posts.map((post) => PostCard(post: post, isOwner: false)),
+            ..._posts.map((post) {
+              // --- LIEN STORY <-> POST ---
+              Map<String, dynamic>? storyGroup;
+              try {
+                storyGroup = _stories.firstWhere(
+                  (s) => s['user_id'].toString() == post.userId,
+                  orElse: () => null,
+                );
+              } catch (e) {
+                storyGroup = null;
+              }
+
+              return PostCard(
+                post: post, 
+                isOwner: false,
+                storyGroup: storyGroup, // Passage de l'info
+              );
+            }),
         ],
       ),
     );
   }
 
-  // Onglet 2 : Memories (Plein écran)
   Widget _buildReelsFeed() {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: Colors.white));
     if (_memories.isEmpty) return const Center(child: Text("Aucun memory", style: TextStyle(color: Colors.white)));
 
-    // Pas de padding ici, on veut du plein écran total
     return PageView.builder(
       scrollDirection: Axis.vertical,
       itemCount: _memories.length,

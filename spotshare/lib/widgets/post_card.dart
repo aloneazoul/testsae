@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math'; // Pour la pagination
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:spotshare/models/post_model.dart';
 import 'package:spotshare/models/comment_model.dart';
@@ -8,6 +8,7 @@ import 'package:spotshare/services/post_service.dart';
 import 'package:spotshare/services/comment_service.dart';
 import 'package:spotshare/services/user_service.dart';
 import 'package:spotshare/utils/constants.dart';
+import 'package:spotshare/pages/Feed/story_player_page.dart'; // Import pour les stories
 import 'package:video_player/video_player.dart';
 import 'package:path/path.dart' as p;
 
@@ -17,6 +18,8 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onDelete;
   final Function(PostModel updatedPost)? onPostUpdated;
   final double textSize;
+  // NOUVEAU : On reçoit les infos de la story ici
+  final Map<String, dynamic>? storyGroup;
 
   const PostCard({
     required this.post,
@@ -24,6 +27,7 @@ class PostCard extends StatefulWidget {
     this.onDelete,
     this.textSize = 12,
     this.onPostUpdated,
+    this.storyGroup, // Ajouté au constructeur
     Key? key,
   }) : super(key: key);
 
@@ -245,6 +249,47 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
     );
   }
 
+  // --- NOUVEAU : Logique de clic sur l'avatar ---
+  void _onAvatarTap() {
+    // Si story présente
+    if (widget.storyGroup != null && (widget.storyGroup!['stories'] as List).isNotEmpty) {
+      final stories = widget.storyGroup!['stories'] as List;
+      // Trouver la première non vue
+      int startIndex = 0;
+      for (int i = 0; i < stories.length; i++) {
+        if (stories[i]['is_viewed'] == false) {
+          startIndex = i;
+          break;
+        }
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StoryPlayerPage(
+            stories: stories,
+            initialIndex: startIndex,
+            username: widget.storyGroup!['username'] ?? widget.post.userName,
+            userImage: widget.storyGroup!['profile_picture'] ?? widget.post.profileImageUrl,
+            isMine: widget.storyGroup!['is_mine'] == true,
+          ),
+        ),
+      );
+    } else {
+      // Sinon on va sur le profil
+      _openProfile();
+    }
+  }
+
+  void _openProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfilePage(userId: widget.post.userId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double mainSize = widget.textSize;
@@ -268,6 +313,46 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
 
     final String timeString = _formatDate(widget.post.date);
 
+    // --- CONSTRUCTION AVATAR AVEC ANNEAU ---
+    final bool hasStory = widget.storyGroup != null && (widget.storyGroup!['stories'] as List).isNotEmpty;
+    final bool allSeen = widget.storyGroup?['all_seen'] ?? true;
+
+    final List<Color> borderColors = allSeen 
+        ? [Colors.grey[700]!, Colors.grey[600]!]
+        : [dGreen, const Color(0xFF2E7D32)];
+
+    Widget avatarWidget = CircleAvatar(
+      backgroundImage: widget.post.profileImageUrl.isNotEmpty
+          ? NetworkImage(widget.post.profileImageUrl)
+          : null,
+      backgroundColor: Colors.grey[800],
+      child: widget.post.profileImageUrl.isEmpty
+          ? const Icon(Icons.person, color: Colors.white)
+          : null,
+    );
+
+    if (hasStory) {
+      avatarWidget = Container(
+        padding: const EdgeInsets.all(2.5), 
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: borderColors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black,
+          ),
+          padding: const EdgeInsets.all(2),
+          child: avatarWidget,
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -276,26 +361,18 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProfilePage(userId: widget.post.userId),
+              Row(
+                children: [
+                  // Avatar interactif
+                  GestureDetector(
+                    onTap: _onAvatarTap,
+                    child: avatarWidget,
                   ),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundImage: widget.post.profileImageUrl.isNotEmpty
-                          ? NetworkImage(widget.post.profileImageUrl)
-                          : null,
-                      backgroundColor: Colors.grey[800],
-                      child: widget.post.profileImageUrl.isEmpty
-                          ? const Icon(Icons.person, color: Colors.white)
-                          : null,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
+                  const SizedBox(width: 8),
+                  // Pseudo interactif (toujours profil)
+                  GestureDetector(
+                    onTap: _openProfile,
+                    child: Text(
                       widget.post.userName,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
@@ -304,8 +381,8 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
                         decoration: TextDecoration.none,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               if (widget.isOwner)
                 PopupMenuButton<String>(
@@ -339,6 +416,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
           ),
         ),
 
+        // Média
         if (widget.post.imageUrls.isNotEmpty)
           SizedBox(
             height: firstImageHeight,
@@ -400,6 +478,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
             ),
           ),
 
+        // Actions
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Row(
@@ -443,6 +522,7 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
           ),
         ),
 
+        // Légende
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Column(
@@ -600,7 +680,7 @@ class _MediaPostItemState extends State<_MediaPostItem> {
   }
 }
 
-// === GESTION DES COMMENTAIRES (USER > PARENT + PAGINATION 3 + ALIGNEMENT) ===
+// ... CLASSE _CommentsSheet (GARDER LA VERSION CORRIGÉE AVEC MATH.MIN CI-DESSOUS) ...
 class _CommentsSheet extends StatefulWidget {
   final String postId;
   final int commentCount;
@@ -965,7 +1045,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     final int totalReplies = allReplies.length;
     final bool hasReplies = totalReplies > 0;
     
-    // Pagination (3 par 3)
     final int showCount = _visibleRepliesCount[rootComment.id] ?? 0;
     final bool isExpanded = showCount > 0;
     final List<CommentModel> displayedReplies = allReplies.take(showCount).toList();
@@ -980,7 +1059,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           _buildRepliesToggle(
             label: "Voir les $totalReplies réponses",
             onTap: () {
-              setState(() => _visibleRepliesCount[rootComment.id] = min(totalReplies, 3));
+              setState(() => _visibleRepliesCount[rootComment.id] = math.min(totalReplies, 3));
             },
             icon: Icons.keyboard_arrow_down,
           ),
@@ -993,7 +1072,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
               children: [
                 ...displayedReplies.map((reply) => _buildSingleComment(reply, isReply: true, rootId: rootComment.id)),
                 
-                // Alignement sur la même ligne
                 Padding(
                   padding: const EdgeInsets.only(left: 56, bottom: 12),
                   child: Row(
@@ -1008,10 +1086,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       if (hasMore) ...[
                         GestureDetector(
                           onTap: () {
-                            setState(() => _visibleRepliesCount[rootComment.id] = min(totalReplies, showCount + 3));
+                            setState(() => _visibleRepliesCount[rootComment.id] = math.min(totalReplies, showCount + 3));
                           },
                           child: Text(
-                            "Afficher ${min(3, totalReplies - showCount)} de plus",
+                            "Afficher ${math.min(3, totalReplies - showCount)} de plus",
                             style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w600),
                           ),
                         ),
