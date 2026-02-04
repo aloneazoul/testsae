@@ -11,7 +11,7 @@ class PostFeedPage extends StatefulWidget {
   final Map<String, dynamic> userData;
   final String initialPostId;
   final String currentLoggedUserId;
-  final bool? isMemoryFeed; // NOUVEAU PARAMÈTRE POUR FORCER LE MODE
+  final bool? isMemoryFeed;
 
   const PostFeedPage({
     Key? key,
@@ -19,7 +19,7 @@ class PostFeedPage extends StatefulWidget {
     required this.userData,
     required this.initialPostId,
     required this.currentLoggedUserId,
-    this.isMemoryFeed, // AJOUT
+    this.isMemoryFeed,
   }) : super(key: key);
 
   @override
@@ -46,7 +46,6 @@ class _PostFeedPageState extends State<PostFeedPage> {
     super.initState();
     _posts = List.from(widget.postsRaw);
 
-    // DÉTECTION DU MODE : On priorise le paramètre explicite, sinon on devine via les données
     if (widget.isMemoryFeed != null) {
       _isMemoryFeed = widget.isMemoryFeed!;
     } else if (_posts.isNotEmpty && _posts.first['post_type'] == 'MEMORY') {
@@ -116,41 +115,40 @@ class _PostFeedPageState extends State<PostFeedPage> {
     }
   }
 
+  // --- CORRECTION : ID EN STRING ---
   Future<bool> _handleDeletePost(String postId) async {
-    int? id = int.tryParse(postId);
-    if (id != null) {
-      final bool? result = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Supprimer ?"),
-          content: const Text("Cette action est irréversible."),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Annuler"),
+    final bool? result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Supprimer ?"),
+        content: const Text("Cette action est irréversible."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Annuler"),
+          ),
+          TextButton(
+            onPressed: () async {
+              // Maintenant on peut passer la String directement
+              final bool success = await _postService.deletePost(postId);
+              Navigator.pop(ctx, success);
+            },
+            child: const Text(
+              "Supprimer",
+              style: TextStyle(color: Colors.red),
             ),
-            TextButton(
-              onPressed: () async {
-                final bool success = await _postService.deletePost(id);
-                Navigator.pop(ctx, success);
-              },
-              child: const Text(
-                "Supprimer",
-                style: TextStyle(color: Colors.red),
-              ),
-            ),
-          ],
-        ),
-      );
-      
-      if (result == true) {
-        setState(() {
-          _needsHardRefresh = true; 
-          _posts.removeWhere((p) => p['post_id'].toString() == postId);
-        });
-        return true;
-      }
+          ),
+        ],
+      ),
+    );
+    
+    if (result == true) {
+      setState(() {
+        _needsHardRefresh = true; 
+        _posts.removeWhere((p) => p['post_id'].toString() == postId);
+      });
+      return true;
     }
     return false;
   }
@@ -168,7 +166,6 @@ class _PostFeedPageState extends State<PostFeedPage> {
 
   @override
   Widget build(BuildContext context) {
-    // === MODE MEMORIES (TIKTOK) ===
     if (_isMemoryFeed) {
       return WillPopScope(
         onWillPop: () async {
@@ -177,8 +174,6 @@ class _PostFeedPageState extends State<PostFeedPage> {
         },
         child: Scaffold(
           backgroundColor: Colors.black, 
-          // extendBodyBehindAppBar est false pour respecter la Safe Area par défaut
-          // Mais ici on veut le fond noir total, donc on utilise un Container root + SafeArea
           body: Container(
             color: Colors.black,
             child: SafeArea(
@@ -215,7 +210,6 @@ class _PostFeedPageState extends State<PostFeedPage> {
       );
     }
 
-    // === MODE POST CLASSIQUE ===
     String pseudo = widget.userData['pseudo'] ?? 'Publications';
     return WillPopScope(
       onWillPop: () async {
@@ -247,7 +241,7 @@ class _PostFeedPageState extends State<PostFeedPage> {
 
   Widget _buildItem(int index) {
     final postData = _posts[index];
-    final postId = postData['post_id'];
+    final postId = postData['post_id'].toString(); // Assuré en String
     final String postUserId = (postData['user_id'] ?? "").toString();
     final bool isOwner = (postUserId == widget.currentLoggedUserId);
     
@@ -276,7 +270,7 @@ class _PostFeedPageState extends State<PostFeedPage> {
         if (imageUrls.isEmpty) return const SizedBox.shrink();
 
         PostModel postModel = PostModel(
-          id: postId.toString(),
+          id: postId,
           userId: postUserId,
           userName: widget.userData['username'] ?? widget.userData['pseudo'] ?? "Inconnu",
           imageUrls: imageUrls,
@@ -314,6 +308,8 @@ class _PostFeedPageState extends State<PostFeedPage> {
                 // logique de suppression
               }
             },
+            // STORYGROUP: NULL pour l'instant dans le feed détail
+            storyGroup: null, 
           );
         }
       },

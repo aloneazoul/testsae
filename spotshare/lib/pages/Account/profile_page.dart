@@ -4,12 +4,16 @@ import 'package:spotshare/services/user_service.dart';
 import 'package:spotshare/services/storage_service.dart';
 import 'package:spotshare/services/trip_service.dart';
 import 'package:spotshare/services/post_service.dart';
+import 'package:spotshare/services/story_service.dart'; 
+import 'package:spotshare/models/story_model.dart'; // IMPORT AJOUTÉ
 import 'package:spotshare/pages/Publication/trip/create_trip_page.dart';
 import 'package:spotshare/pages/Account/post_feed_page.dart';
 import 'package:spotshare/utils/constants.dart';
 import 'package:spotshare/pages/Account/login_page.dart';
 import 'package:spotshare/pages/Account/trip_map_overlay.dart';
 import 'package:spotshare/pages/Chat/chat_page.dart';
+import 'package:spotshare/pages/Publication/post/Publication_page.dart'; 
+import 'package:spotshare/pages/Feed/story_player_page.dart'; 
 import 'package:spotshare/models/conversation.dart';
 import 'package:spotshare/widgets/post_grid_item.dart';
 
@@ -26,12 +30,18 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final TripService _tripService = TripService();
   final PostService _postService = PostService();
+  final StoryService _storyService = StoryService(); 
 
   Map<String, dynamic>? _userData;
   List<dynamic> _myTrips = [];
   
   List<dynamic> _myPosts = [];
   List<dynamic> _myMemories = [];
+  
+  // CORRECTION : Typage fort ici pour correspondre au StoryPlayerPage
+  List<StoryItem> _userStories = []; 
+  bool _hasStories = false;
+  bool _allStoriesSeen = true;
 
   bool _viewingMemories = false;
   bool _loading = true;
@@ -121,6 +131,7 @@ class _ProfilePageState extends State<ProfilePage>
         _tripService.getTripsByUser(targetId),
         _postService.getPostsByUser(targetId, type: "POST"),
         _postService.getPostsByUser(targetId, type: "MEMORY"),
+        _storyService.getUserStories(targetId), // Retourne Map<String, dynamic>
       ]);
 
       if (mounted) {
@@ -129,6 +140,18 @@ class _ProfilePageState extends State<ProfilePage>
           _myTrips = futures[1] as List<dynamic>;
           _myPosts = futures[2] as List<dynamic>;
           _myMemories = futures[3] as List<dynamic>;
+          
+          // CORRECTION : Conversion des données brutes en StoryItem
+          final storiesData = futures[4] as Map<String, dynamic>?;
+          if (storiesData != null) {
+            final rawList = storiesData['stories'] as List<dynamic>? ?? [];
+            _userStories = rawList.map((json) => StoryItem.fromJson(json)).toList();
+            _allStoriesSeen = storiesData['all_seen'] ?? true;
+            _hasStories = _userStories.isNotEmpty;
+          } else {
+            _userStories = [];
+            _hasStories = false;
+          }
 
           if (_userData != null) {
             _isFollowing = _userData!['is_following'] == true;
@@ -145,6 +168,43 @@ class _ProfilePageState extends State<ProfilePage>
       }
     }
   }
+
+  // --- CLIC SUR L'AVATAR ---
+  void _onAvatarTap() {
+    if (_hasStories) {
+      int startIndex = 0;
+      for (int i = 0; i < _userStories.length; i++) {
+        // CORRECTION : Accès propriété objet au lieu de map key
+        if (_userStories[i].isViewed == false) {
+          startIndex = i;
+          break;
+        }
+      }
+      
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StoryPlayerPage(
+            stories: _userStories, // Maintenant compatible (List<StoryItem>)
+            initialIndex: startIndex,
+            username: _userData?['username'] ?? _userData?['pseudo'] ?? "User",
+            userImage: _userData?['profile_picture'] ?? _userData?['img'] ?? "",
+            isMine: isMyProfile,
+          ),
+        ),
+      ).then((_) => _loadAllData()); 
+    
+    } 
+    else if (isMyProfile) {
+       Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const PublishPage(returnIndex: 4), 
+        ),
+      ).then((_) => _loadAllData());
+    }
+  }
+  // ------------------------------------------------
 
   Future<void> _toggleFollow() async {
     if (widget.userId == null) return;
@@ -279,45 +339,76 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  ImageProvider? _getProfileImageProvider(String? url) {
+    if (url == null || url.trim().isEmpty) return null;
+    if (url.startsWith('http')) return NetworkImage(url);
+    return NetworkImage("http://10.0.2.2:8000/$url");
+  }
+
   Widget _buildProfileHeader(
     String? avatarUrl,
     String posts,
     String followers,
     String following,
   ) {
+    final List<Color> borderColors = _allStoriesSeen 
+        ? [Colors.grey[700]!, Colors.grey[600]!]
+        : [dGreen, const Color(0xFF2E7D32)];
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
         children: <Widget>[
-          Stack(
-            children: <Widget>[
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: Colors.grey[800],
-                backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
-                    ? NetworkImage(avatarUrl)
-                    : null,
-                child: (avatarUrl == null || avatarUrl.isEmpty)
-                    ? const Icon(Icons.person, size: 40, color: Colors.white54)
-                    : null,
-              ),
-              if (isMyProfile)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
+          GestureDetector(
+            onTap: _onAvatarTap,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                if (_hasStories)
+                  Container(
+                    width: 88, 
+                    height: 88,
+                    decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.add_circle,
-                      color: Colors.black,
-                      size: 24,
+                      gradient: LinearGradient(
+                        colors: borderColors,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
                   ),
+                
+                Container(
+                  padding: _hasStories ? const EdgeInsets.all(3) : EdgeInsets.zero,
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black),
+                  child: CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.grey[800],
+                    backgroundImage: _getProfileImageProvider(avatarUrl),
+                    child: (avatarUrl == null || avatarUrl.isEmpty)
+                        ? const Icon(Icons.person, size: 40, color: Colors.white54)
+                        : null,
+                  ),
                 ),
-            ],
+                
+                if (isMyProfile && !_hasStories)
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.add_circle,
+                        color: Colors.black,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(width: 20),
           Expanded(
@@ -371,7 +462,7 @@ class _ProfilePageState extends State<ProfilePage>
       child: SizedBox(
         width: double.infinity,
         child: OutlinedButton(
-          onPressed: () {},
+          onPressed: () {}, 
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: Colors.grey),
             shape: RoundedRectangleBorder(
@@ -455,24 +546,9 @@ class _ProfilePageState extends State<ProfilePage>
       children: <Widget>[
         _buildPublicationTab(),
         _buildTripsGrid(),
-        const Center(
-          child: Text(
-            'Vos brouillons',
-            style: TextStyle(color: Colors.white54, fontSize: 16),
-          ),
-        ),
-        const Center(
-          child: Text(
-            'Vos favoris',
-            style: TextStyle(color: Colors.white54, fontSize: 16),
-          ),
-        ),
-        const Center(
-          child: Text(
-            'Posts aimés',
-            style: TextStyle(color: Colors.white54, fontSize: 16),
-          ),
-        ),
+        const Center(child: Text('Vos brouillons', style: TextStyle(color: Colors.white54, fontSize: 16))),
+        const Center(child: Text('Vos favoris', style: TextStyle(color: Colors.white54, fontSize: 16))),
+        const Center(child: Text('Posts aimés', style: TextStyle(color: Colors.white54, fontSize: 16))),
       ],
     );
   }
@@ -580,7 +656,6 @@ class _ProfilePageState extends State<ProfilePage>
                       userData: _userData!,
                       initialPostId: post['post_id'].toString(),
                       currentLoggedUserId: myId,
-                      // AJOUT CRITIQUE : On passe explicitement le type de feed
                       isMemoryFeed: _viewingMemories,
                     ),
                   ),
@@ -744,11 +819,7 @@ class _TripGridItemState extends State<TripGridItem> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             IconButton(
-                              icon: const Icon(
-                                Icons.share,
-                                color: Colors.white,
-                                size: 20,
-                              ),
+                              icon: const Icon(Icons.share, color: Colors.white, size: 20),
                               onPressed: () {},
                             ),
                             const Spacer(),

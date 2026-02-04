@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:spotshare/utils/constants.dart';
+import 'package:spotshare/models/story_model.dart'; // Import ajouté
 
 class StoriesBar extends StatelessWidget {
-  final List<Map<String, dynamic>> stories;
+  // Liste typée UserStoryGroup
+  final List<UserStoryGroup> stories; 
   final VoidCallback? onAddStoryTap;
+  final Function(int index)? onStoryTap;
 
-  const StoriesBar({Key? key, required this.stories, this.onAddStoryTap})
-    : super(key: key);
+  const StoriesBar({
+    Key? key,
+    required this.stories,
+    this.onAddStoryTap,
+    this.onStoryTap,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -17,23 +24,43 @@ class StoriesBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         itemCount: stories.length,
         itemBuilder: (context, index) {
-          final story = stories[index];
-          final bool isMine = story['is_mine'] == true;
-          final String imageUrl = story['image'] ?? "";
-          final String name = story['name'] ?? "";
-
-          return Padding(
-            padding: EdgeInsets.only(left: index == 0 ? 12 : 8, right: 8),
-            child: Column(
-              children: [
-                _buildAvatarCircle(context, imageUrl, isMine),
-                const SizedBox(height: 6),
-                Text(
-                  name,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+          final group = stories[index];
+          
+          final bool isMine = group.isMine;
+          final String imageUrl = group.profilePicture ?? "";
+          final String username = group.username;
+          
+          // Si allSeen est True, c'est gris. Si False (non vu), c'est vert.
+          final bool allSeen = group.allSeen;
+          
+          return GestureDetector(
+            onTap: () {
+              if (onStoryTap != null) {
+                onStoryTap!(index);
+              }
+            },
+            child: Padding(
+              padding: EdgeInsets.only(left: index == 0 ? 12 : 8, right: 8),
+              child: Column(
+                children: [
+                  _buildAvatarCircle(context, imageUrl, isMine, allSeen),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 70,
+                    child: Text(
+                      isMine ? "Votre story" : username,
+                      style: TextStyle(
+                        // Texte gris si tout vu, blanc sinon (pour ressortir)
+                        color: allSeen ? Colors.grey : Colors.white,
+                        fontSize: 12,
+                        fontWeight: allSeen ? FontWeight.normal : FontWeight.bold
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -45,24 +72,46 @@ class StoriesBar extends StatelessWidget {
     BuildContext context,
     String imageUrl,
     bool isMine,
+    bool allSeen,
   ) {
-    if (isMine) {
-      return Stack(
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 2, right: 2),
-            padding: const EdgeInsets.all(2),
-            child: CircleAvatar(
-              radius: 30,
-              backgroundColor: Colors.grey[800],
-              backgroundImage: (imageUrl.isNotEmpty)
-                  ? NetworkImage(imageUrl)
-                  : null,
-              child: imageUrl.isEmpty
-                  ? const Icon(Icons.person, color: Colors.white)
-                  : null,
+    // Vert si nouveau (allSeen == false), Gris si tout vu
+    final List<Color> borderColors = allSeen 
+        ? [Colors.grey[700]!, Colors.grey[600]!]
+        : [dGreen, const Color(0xFF2E7D32)];
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Cercle dégradé (Bordure)
+        Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: borderColors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
           ),
+          child: Padding(
+            padding: const EdgeInsets.all(2.5), 
+            child: Container(
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black, 
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(50),
+                child: imageUrl.isNotEmpty
+                    ? Image.network(imageUrl, fit: BoxFit.cover)
+                    : const Icon(Icons.person, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+
+        if (isMine)
           Positioned(
             bottom: 0,
             right: 0,
@@ -79,37 +128,7 @@ class StoriesBar extends StatelessWidget {
               ),
             ),
           ),
-        ],
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: [dGreen, Color(0xFF2E7D32)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: const BoxDecoration(
-          color: Colors.black,
-          shape: BoxShape.circle,
-        ),
-        child: CircleAvatar(
-          radius: 28,
-          backgroundColor: Colors.grey[800],
-          backgroundImage: (imageUrl.isNotEmpty)
-              ? NetworkImage(imageUrl)
-              : null,
-          child: imageUrl.isEmpty
-              ? const Icon(Icons.person, size: 20, color: Colors.white)
-              : null,
-        ),
-      ),
+      ],
     );
   }
 }

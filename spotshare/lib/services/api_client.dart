@@ -9,7 +9,8 @@ class ApiClient {
   ApiClient._internal();
 
   String get baseUrl {
-    //return "https://spotshareapi.fr";
+    // Remplacez par votre IP locale si nécessaire (ex: 10.0.2.2 pour émulateur Android)
+    // return "http://10.0.2.2:8000"; 
     return "http://127.0.0.1:8001";
   }
 
@@ -43,29 +44,13 @@ class ApiClient {
     return _processResponse(response);
   }
 
-  dynamic _processResponse(http.Response response) {
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (response.body.isEmpty) return {};
-      return jsonDecode(response.body);
-    } else if (response.statusCode == 401) {
-      throw Exception("Non autorisé");
-    } else {
-      print("❌ Erreur API ${response.statusCode}: ${response.body}");
-      throw Exception("Erreur serveur: ${response.statusCode}");
-    }
-  }
-
   Future<dynamic> postForm(String endpoint, Map<String, String> data) async {
     final url = Uri.parse("$baseUrl$endpoint");
-
     final token = await StorageService.getToken();
-
     final headers = {if (token != null) "Authorization": "Bearer $token"};
 
     print("🛫 POST FORM: $url \n📦 Data: $data");
-
     final response = await http.post(url, headers: headers, body: data);
-
     return _processResponse(response);
   }
 
@@ -74,13 +59,12 @@ class ApiClient {
     final headers = await _getHeaders();
 
     print("🔴 DELETE: $url");
-
     final response = await http.delete(url, headers: headers);
-
     return _processResponse(response);
   }
 
-  Future<dynamic> postMultipart(String endpoint, File file) async {
+  // --- MODIFICATION ICI : Ajout du paramètre 'fields' ---
+  Future<dynamic> postMultipart(String endpoint, File file, {Map<String, String>? fields}) async {
     final url = Uri.parse("$baseUrl$endpoint");
     final token = await StorageService.getToken();
 
@@ -90,20 +74,35 @@ class ApiClient {
       request.headers['Authorization'] = 'Bearer $token';
     }
 
-    var multipartFile = await http.MultipartFile.fromPath('file', file.path);
+    // Ajout des champs textes (caption, lat, lon...)
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
 
+    var multipartFile = await http.MultipartFile.fromPath('file', file.path);
     request.files.add(multipartFile);
 
-    print("🛫 UPLOAD: $url \n📁 File: ${file.path}");
+    print("🛫 UPLOAD: $url \n📁 File: ${file.path} \n📝 Fields: $fields");
 
     try {
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
-
       return _processResponse(response);
     } catch (e) {
       print("❌ Erreur Upload: $e");
       throw Exception("Erreur lors de l'envoi du fichier");
+    }
+  }
+
+  dynamic _processResponse(http.Response response) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return {};
+      return jsonDecode(response.body);
+    } else if (response.statusCode == 401) {
+      throw Exception("Non autorisé");
+    } else {
+      print("❌ Erreur API ${response.statusCode}: ${response.body}");
+      throw Exception("Erreur serveur: ${response.statusCode}");
     }
   }
 }
