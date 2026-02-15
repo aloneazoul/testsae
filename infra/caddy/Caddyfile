@@ -1,0 +1,31 @@
+{
+  auto_https off
+  admin off
+}
+
+:80 {
+  @api host spotshareapi.fr
+  handle @api {
+    reverse_proxy api:8000
+  }
+
+  @grafana host grafana.spotshareapi.fr
+  handle @grafana {
+    reverse_proxy grafana:3000
+  }
+
+  @prom host prometheus.spotshareapi.fr
+  handle @prom {
+    # Si la requête ne vient pas de ton proxy interne, dehors
+    @bad_proxy not remote_ip 10.0.0.2 127.0.0.1 ::1
+    respond @bad_proxy 403
+
+    # Maintenant on filtre par IP réelle transmise par le proxy
+    @not_allowed not header_regexp X-Forwarded-For ^(81\.220\.115\.32|51\.210\.4\.222)(,|$)
+    respond @not_allowed 403
+
+    reverse_proxy prometheus:9090
+  }
+
+
+}
